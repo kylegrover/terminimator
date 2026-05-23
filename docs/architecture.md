@@ -14,7 +14,8 @@ Focus first on:
 - progress bars and counters
 - text transitions and overlays
 - a live preview that feels trustworthy
-- export to Python, Node, Rust, and a deliberately scoped Bash subset
+- export to JS, Python, and Rust
+- lightweight sharing through URL-encoded state
 
 Do not start with:
 
@@ -29,6 +30,12 @@ Do not start with:
 ### Single app first
 
 Use one Vite + React + TypeScript application until the project has a second deployable or a reusable package that truly deserves separation.
+
+### Structured first slice
+
+The current playground starts with a small fixed primitive set and a visual editor. That is deliberate.
+
+Before introducing a freer authoring surface, the project needs to prove the scene model, the preview contract, and the exporter shape.
 
 ### JavaScript with rails
 
@@ -74,16 +81,18 @@ Potential early primitives:
 
 - `text`
 - `repeat`
-- `space`
-- `line`
-- `stack`
 - `progressBar`
+
+These are the first primitives already represented in the repo.
+
+Likely next primitives once the first slice settles:
+
+- `space`
 - `counter`
 - `pad`
 - `truncate`
-- `overlay`
 - `style`
-- effect-specific helpers such as `wave` or `zalgoWave` once the IR can represent them cleanly
+- effect-specific helpers once the IR can represent them cleanly
 
 ### Shared scene shape
 
@@ -91,14 +100,14 @@ Keep the IR multi-line capable even if the first templates are mostly one line.
 
 That avoids repainting the whole model later when multiline effects or stacked status regions appear.
 
-One possible starting shape:
+The current repo uses a shape in this direction:
 
 ```ts
 type FrameScene = {
-  lines: FrameNode[][]
-  fps?: number
-  done?: boolean
-  meta?: Record<string, string | number | boolean>
+  lines: {
+    id: string
+    nodes: FrameNode[]
+  }[]
 }
 ```
 
@@ -112,22 +121,24 @@ type FrameScene = {
 
 The preview must feel deterministic. If the same inputs are replayed, the same frames should render.
 
+For the current slice, a browser-native preview renderer is sufficient. A full terminal emulator can land later once ANSI behavior and cursor control matter.
+
 ## Export strategy
 
 ### Do not export arbitrary JavaScript
 
 The exporter layer should compile the shared IR or effect definition into target-language templates.
 
-That is the only realistic way to keep parity across Python, Node, Rust, and Bash without turning the project into a full compiler effort.
+That is the only realistic way to keep parity across JS, Python, Rust, and later Go without turning the project into a full compiler effort.
 
 ### Export order
 
-1. Node
+1. JS / Node
 2. Python
 3. Rust
-4. Bash subset
+4. Go
 
-Bash should be explicit about its ceiling. Math-heavy or Unicode-heavy effects may be unsupported or downgraded.
+Bash is out of the first slice.
 
 ### Wrapper responsibility
 
@@ -139,6 +150,8 @@ Each exporter should own:
 - progress updates and API surface
 - effect configuration payload
 
+In the current prototype, code export is also the primary persistence format.
+
 Later, when exporters land, add golden fixtures for generated output so regressions are easy to detect.
 
 ## Libraries to adopt instead of custom infrastructure
@@ -149,6 +162,8 @@ Later, when exporters land, add golden fixtures for generated output so regressi
 - `Zod` for config and preset validation
 - a proven width utility before exporter work begins; never rely on raw string length for display width
 
+Those remain likely next dependencies, but the first slice does not need all of them yet.
+
 ## Repo evolution plan
 
 ### Current repo
@@ -156,6 +171,11 @@ Later, when exporters land, add golden fixtures for generated output so regressi
 ```text
 src/
   app/
+  features/playground/
+  lib/exporters/
+  lib/preview/
+  lib/schema/
+  lib/utils/
   styles/
 ```
 
@@ -164,15 +184,10 @@ src/
 ```text
 src/
   features/
-    playground/
     templates/
     export/
   lib/
-    schema/
     runtime/
-    preview/
-    exporters/
-    utils/
 ```
 
 The rule is to add slices only when they get real code. Do not create empty structure for imagined future abstractions.
@@ -187,10 +202,6 @@ If the authoring surface becomes too freeform, the exporter promise breaks.
 
 Combining marks, wide glyphs, and terminal-specific rendering will create visual bugs if width math is naive.
 
-### Bash portability
-
-Bash timers, redraw loops, and math are limited. This needs a product-level support boundary.
-
 ### Sandbox overhead
 
 QuickJS and worker messaging add runtime cost. The preview loop needs testing at realistic frame rates.
@@ -199,24 +210,23 @@ QuickJS and worker messaging add runtime cost. The preview loop needs testing at
 
 Before any backend exists, prefer:
 
-- local storage for draft persistence
-- downloadable JSON for presets
-- shareable URL encoding only if the effect schema stays compact enough
+- generated standalone code as the main persistence format
+- shareable URL encoding for lightweight state handoff
+- downloadable JSON only if URL-sized sharing stops being practical
 
 That keeps the product deployable as static files while still making effects portable.
 
 ## Suggested implementation sequence
 
-1. Build the planning shell and docs.
-2. Add the playground slice with editor, preview, and deterministic playback controls.
-3. Lock the frame IR and helper API against a small set of curated templates.
-4. Add export adapters using the shared IR, starting with Node and Python.
-5. Add preset serialization and lightweight sharing.
+1. Tighten the current playground and its primitive editing UX.
+2. Lock the frame IR around the current multiline-ready scene shape.
+3. Improve export quality for JS, Python, and Rust.
+4. Add a small template layer and better URL-sharing ergonomics.
+5. Add Go once the current exporter contract holds up.
 6. Start the graph editor only after the primitive vocabulary stabilizes.
 
 ## Questions to resolve before phase 1 is locked
 
-- Is the first stable frame model single-line-first or fully multi-line from day one?
-- Which primitives are part of the first supported helper set?
-- How much Bash support is officially promised?
-- What is the first persistence format for user-created effects?
+- When should the playground switch from a form-first editor to code-first authoring?
+- Which primitives belong in the next expansion beyond `text`, `repeat`, and `progressBar`?
+- How far can URL-state sharing stretch before a downloadable preset format becomes necessary?
