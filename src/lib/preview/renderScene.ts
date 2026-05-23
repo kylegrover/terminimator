@@ -1,11 +1,11 @@
-import type { FrameNode, FrameScene, PlaybackState } from '../schema/frame'
+import type { EffectDefinition, FrameNode, PlaybackState } from '../schema/frame'
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
 }
 
 function repeatCount(node: Extract<FrameNode, { type: 'repeat' }>, frame: number) {
-  if (!node.animated) {
+  if (node.from !== 'frame') {
     return clamp(node.count, 0, 32)
   }
 
@@ -31,8 +31,8 @@ export function renderNode(node: FrameNode, playback: PlaybackState) {
   }
 }
 
-export function renderScene(scene: FrameScene, playback: PlaybackState) {
-  return scene.lines
-    .map((line) => line.nodes.map((node) => renderNode(node, playback)).join(''))
+export function renderScene(effect: EffectDefinition, playback: PlaybackState) {
+  return effect.lines
+    .map((line) => line.map((node) => renderNode(node, playback)).join(''))
     .join('\n')
 }

@@ -16,6 +16,7 @@ Focus first on:
 - a live preview that feels trustworthy
 - export to JS, Python, and Rust
 - lightweight sharing through URL-encoded state
+- a small template library that forces the primitive system to prove itself
 
 Do not start with:
 
@@ -33,15 +34,17 @@ Use one Vite + React + TypeScript application until the project has a second dep
 
 ### Structured first slice
 
-The current playground starts with a small fixed primitive set and a visual editor. That is deliberate.
+The current playground starts with a small fixed primitive set and a code-first editor. That is deliberate.
 
-Before introducing a freer authoring surface, the project needs to prove the scene model, the preview contract, and the exporter shape.
+Before introducing a freer authoring surface or a node graph, the project needs to prove the scene model, the preview contract, and the exporter shape.
 
 ### JavaScript with rails
 
-User-authored code should be JavaScript, but not freeform terminal scripting. The author writes a callback that returns structured frame data assembled from provided helper primitives.
+User-authored code should be JavaScript, but not freeform terminal scripting. The author writes strict JS that returns structured frame data assembled from provided helper primitives.
 
 That keeps the authoring experience flexible while preserving a shared intermediate representation for preview and export.
+
+At the moment, the editor is effectively a small JS-authored DSL built from helper functions.
 
 ### Shared frame IR
 
@@ -83,7 +86,7 @@ Potential early primitives:
 - `repeat`
 - `progressBar`
 
-These are the first primitives already represented in the repo.
+These are the first primitives already represented in the repo and available in the editor helper surface.
 
 Likely next primitives once the first slice settles:
 
@@ -113,15 +116,16 @@ type FrameScene = {
 
 ### Preview runtime
 
-- Monaco for authoring
-- xterm.js for terminal rendering
-- QuickJS in a worker for sandboxed execution
-- mock controls for time, progress, step, total, and seed
-- playback model that supports play, pause, reset, and scrub
+- text editor first
+- browser preview renderer first
+- playback controls for frame, current, total, fps, and loop
+- template switching to stress the IR with multiple effect shapes
 
 The preview must feel deterministic. If the same inputs are replayed, the same frames should render.
 
 For the current slice, a browser-native preview renderer is sufficient. A full terminal emulator can land later once ANSI behavior and cursor control matter.
+
+The current evaluator uses strict helper-scoped JavaScript via the browser runtime. If sandbox guarantees become necessary, that can move behind QuickJS later without changing the IR.
 
 ## Export strategy
 
@@ -174,6 +178,7 @@ src/
   features/playground/
   lib/exporters/
   lib/preview/
+  lib/runtime/
   lib/schema/
   lib/utils/
   styles/
@@ -198,6 +203,10 @@ The rule is to add slices only when they get real code. Do not create empty stru
 
 If the authoring surface becomes too freeform, the exporter promise breaks.
 
+### Runtime trust boundary
+
+The current code-first editor is intentionally strict, but it still rides the browser runtime. A future sandbox step is likely once the helper surface stabilizes.
+
 ### Unicode width
 
 Combining marks, wide glyphs, and terminal-specific rendering will create visual bugs if width math is naive.
@@ -220,8 +229,9 @@ That keeps the product deployable as static files while still making effects por
 
 1. Tighten the current playground and its primitive editing UX.
 2. Lock the frame IR around the current multiline-ready scene shape.
-3. Improve export quality for JS, Python, and Rust.
-4. Add a small template layer and better URL-sharing ergonomics.
+3. Use the template library and the unsupported-ideas list to drive the next primitive additions.
+4. Improve export quality for JS, Python, and Rust.
+5. Add a better terminal preview surface and richer URL-sharing ergonomics.
 5. Add Go once the current exporter contract holds up.
 6. Start the graph editor only after the primitive vocabulary stabilizes.
 
@@ -230,3 +240,5 @@ That keeps the product deployable as static files while still making effects por
 - When should the playground switch from a form-first editor to code-first authoring?
 - Which primitives belong in the next expansion beyond `text`, `repeat`, and `progressBar`?
 - How far can URL-state sharing stretch before a downloadable preset format becomes necessary?
+
+The first of those is now answered: code-first authoring is the current direction.

@@ -1,11 +1,11 @@
-import type {
-  FrameLine,
-  FrameNode,
-  PlaygroundState,
-} from '../schema/frame'
+import type { EffectDefinition, ExportTarget, FrameNode, PlaybackState } from '../schema/frame'
 
-function jsValue(value: string) {
-  return JSON.stringify(value)
+function effectJson(effect: EffectDefinition) {
+  return JSON.stringify(effect, null, 2)
+}
+
+function pythonEffectLiteral(effect: EffectDefinition) {
+  return JSON.stringify(JSON.stringify(effect))
 }
 
 function rustString(value: string) {
@@ -17,106 +17,30 @@ function rustString(value: string) {
     .replace(/\t/g, '\\t')}"`
 }
 
-function rustChar(value: string, fallback: string) {
-  const [character = fallback] = Array.from(value)
-  const escaped = character.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
-  return `'${escaped}'`
-}
-
-function renderJsNode(node: FrameNode) {
-  switch (node.type) {
-    case 'text':
-      return `    { type: 'text', value: ${jsValue(node.value)} }`
-    case 'repeat':
-      return `    { type: 'repeat', value: ${jsValue(node.value)}, count: ${node.count}, animated: ${node.animated} }`
-    case 'progressBar':
-      return `    { type: 'progressBar', width: ${node.width}, filled: ${jsValue(node.filled)}, empty: ${jsValue(node.empty)}, showCounter: ${node.showCounter} }`
-  }
-}
-
 function renderRustNode(node: FrameNode) {
   switch (node.type) {
     case 'text':
       return `Node::Text(String::from(${rustString(node.value)}))`
     case 'repeat':
-      return `Node::Repeat { value: String::from(${rustString(node.value)}), count: ${node.count}, animated: ${node.animated} }`
+      return `Node::Repeat { value: String::from(${rustString(node.value)}), count: ${node.count}, from_frame: ${node.from === 'frame'} }`
     case 'progressBar':
-      return `Node::ProgressBar { width: ${node.width}, filled: ${rustChar(node.filled, '=')}, empty: ${rustChar(node.empty, '.')}, show_counter: ${node.showCounter} }`
+      return `Node::ProgressBar { width: ${node.width}, filled: String::from(${rustString(node.filled)}), empty: String::from(${rustString(node.empty)}), show_counter: ${node.showCounter} }`
   }
 }
 
-function pythonSceneLiteral(lines: FrameLine[]) {
-  return JSON.stringify(
-    {
-      lines: lines.map((line) => ({
-        nodes: line.nodes.map((node) => {
-          if (node.type === 'text') {
-            return { type: node.type, value: node.value }
-          }
+function generateJsCode(effect: EffectDefinition, playback: PlaybackState) {
+  return `const effect = ${effectJson(effect)}
 
-          if (node.type === 'repeat') {
-            return {
-              type: node.type,
-              value: node.value,
-              count: node.count,
-              animated: node.animated,
-            }
-          }
-
-          return {
-            type: node.type,
-            width: node.width,
-            filled: node.filled,
-            empty: node.empty,
-            showCounter: node.showCounter,
-          }
-        }),
-      })),
-    },
-  )
-}
-
-function nodeSummary(node: FrameNode) {
-  switch (node.type) {
-    case 'text':
-      return `text(${node.value.length})`
-    case 'repeat':
-      return `repeat(${node.count})`
-    case 'progressBar':
-      return `progress(${node.width})`
-  }
-}
-
-export function generateCode(state: PlaygroundState) {
-  switch (state.exportTarget) {
-    case 'js':
-      return generateJsCode(state)
-    case 'py':
-      return generatePythonCode(state)
-    case 'rust':
-      return generateRustCode(state)
-  }
-}
-
-function generateJsCode(state: PlaygroundState) {
-  const sceneLines = state.scene.lines
-    .map(
-      (line) => `  [\n${line.nodes.map(renderJsNode).join(',\n')}\n  ]`,
-    )
-    .join(',\n')
-
-  return `const scene = {
-  lines: [
-${sceneLines}
-  ],
-}
+const fps = ${playback.fps}
+const loop = ${playback.loop}
+const delay = Math.max(1, Math.round(1000 / Math.max(fps, 1)))
 
 function renderNode(node, ctx) {
   switch (node.type) {
     case 'text':
       return node.value
     case 'repeat': {
-      const count = node.animated ? ctx.frame % (node.count + 1) : node.count
+      const count = node.from === 'frame' ? ctx.frame % (node.count + 1) : node.count
       return node.value.repeat(count)
     }
     case 'progressBar': {
@@ -132,37 +56,40 @@ function renderNode(node, ctx) {
   }
 }
 
-function renderScene(ctx) {
-  return scene.lines
+function renderEffect(ctx) {
+  return effect.lines
     .map((line) => line.map((node) => renderNode(node, ctx)).join(''))
     .join('\n')
 }
 
-let frame = ${state.playback.frame}
-let current = ${state.playback.current}
-const total = ${state.playback.total}
+let frame = ${playback.frame}
+let current = ${playback.current}
+const total = ${playback.total}
 
 const timer = setInterval(() => {
-  process.stderr.write('\x1b[2J\x1b[H' + renderScene({ frame, current, total }))
-  frame += 1
-  current = Math.min(total, current + 1)
+  process.stderr.write('\x1b[2J\x1b[H' + renderEffect({ frame, current, total }))
 
-  if (current >= total) {
+  if (!loop && current >= total) {
     clearInterval(timer)
     process.stderr.write('\n')
+    return
   }
-}, 100)
+
+  frame += 1
+  current = loop ? (current >= total ? 0 : current + 1) : Math.min(total, current + 1)
+}, delay)
 `
 }
 
-function generatePythonCode(state: PlaygroundState) {
-  const sceneLiteral = JSON.stringify(pythonSceneLiteral(state.scene.lines))
-
+function generatePythonCode(effect: EffectDefinition, playback: PlaybackState) {
   return `import json
 import sys
 import time
 
-SCENE = json.loads(${sceneLiteral})
+EFFECT = json.loads(${pythonEffectLiteral(effect)})
+FPS = ${playback.fps}
+LOOP = ${playback.loop}
+DELAY = 1 / max(FPS, 1)
 
 
 def render_node(node, ctx):
@@ -170,7 +97,7 @@ def render_node(node, ctx):
         return node["value"]
 
     if node["type"] == "repeat":
-        count = ctx["frame"] % (node["count"] + 1) if node["animated"] else node["count"]
+        count = ctx["frame"] % (node["count"] + 1) if node["from"] == "frame" else node["count"]
         return node["value"] * count
 
     safe_total = max(ctx["total"], 1)
@@ -181,36 +108,34 @@ def render_node(node, ctx):
     return f"[{bar}]{counter}"
 
 
-def render_scene(ctx):
+def render_effect(ctx):
     return "\n".join(
-        "".join(render_node(node, ctx) for node in line["nodes"])
-        for line in SCENE["lines"]
+        "".join(render_node(node, ctx) for node in line)
+        for line in EFFECT["lines"]
     )
 
 
-frame = ${state.playback.frame}
-current = ${state.playback.current}
-total = ${state.playback.total}
+frame = ${playback.frame}
+current = ${playback.current}
+total = ${playback.total}
 
 while True:
-    sys.stderr.write("\x1b[2J\x1b[H" + render_scene({"frame": frame, "current": current, "total": total}))
+    sys.stderr.write("\x1b[2J\x1b[H" + render_effect({"frame": frame, "current": current, "total": total}))
     sys.stderr.flush()
 
-    if current >= total:
+    if not LOOP and current >= total:
         sys.stderr.write("\n")
         break
 
-    time.sleep(0.1)
+    time.sleep(DELAY)
     frame += 1
-    current = min(total, current + 1)
+    current = 0 if LOOP and current >= total else min(total, current + 1)
 `
 }
 
-function generateRustCode(state: PlaygroundState) {
-  const sceneLines = state.scene.lines
-    .map(
-      (line) => `        vec![${line.nodes.map(renderRustNode).join(', ')}]`,
-    )
+function generateRustCode(effect: EffectDefinition, playback: PlaybackState) {
+  const sceneLines = effect.lines
+    .map((line) => `        vec![${line.map(renderRustNode).join(', ')}]`)
     .join(',\n')
 
   return `use std::thread;
@@ -219,23 +144,22 @@ use std::time::Duration;
 #[derive(Clone)]
 enum Node {
     Text(String),
-    Repeat { value: String, count: usize, animated: bool },
-    ProgressBar { width: usize, filled: char, empty: char, show_counter: bool },
+    Repeat { value: String, count: usize, from_frame: bool },
+    ProgressBar { width: usize, filled: String, empty: String, show_counter: bool },
 }
 
 fn render_node(node: &Node, frame: usize, current: usize, total: usize) -> String {
     match node {
         Node::Text(value) => value.clone(),
-        Node::Repeat { value, count, animated } => {
-            let amount = if *animated { frame % (count + 1) } else { *count };
+        Node::Repeat { value, count, from_frame } => {
+            let amount = if *from_frame { frame % (count + 1) } else { *count };
             value.repeat(amount)
         }
         Node::ProgressBar { width, filled, empty, show_counter } => {
             let safe_total = total.max(1);
             let ratio = current as f32 / safe_total as f32;
             let filled_count = (ratio.clamp(0.0, 1.0) * *width as f32).round() as usize;
-            let bar = filled.to_string().repeat(filled_count)
-                + &empty.to_string().repeat(width.saturating_sub(filled_count));
+            let bar = filled.repeat(filled_count) + &empty.repeat(width.saturating_sub(filled_count));
             let counter = if *show_counter {
                 format!(" {}/{}", current, total)
             } else {
@@ -246,8 +170,8 @@ fn render_node(node: &Node, frame: usize, current: usize, total: usize) -> Strin
     }
 }
 
-fn render_scene(scene: &[Vec<Node>], frame: usize, current: usize, total: usize) -> String {
-    scene
+fn render_effect(effect: &[Vec<Node>], frame: usize, current: usize, total: usize) -> String {
+    effect
         .iter()
         .map(|line| {
             line.iter()
@@ -260,32 +184,48 @@ fn render_scene(scene: &[Vec<Node>], frame: usize, current: usize, total: usize)
 }
 
 fn main() {
-    let scene = vec![
+    let effect = vec![
 ${sceneLines}
     ];
 
-    let total = ${state.playback.total}usize;
-    let mut current = ${state.playback.current}usize;
-    let mut frame = ${state.playback.frame}usize;
+    let fps = ${playback.fps}usize;
+    let loop_playback = ${playback.loop};
+    let delay = Duration::from_millis((1000 / fps.max(1)) as u64);
+    let total = ${playback.total}usize;
+    let mut current = ${playback.current}usize;
+    let mut frame = ${playback.frame}usize;
 
     loop {
-        eprint!("\x1b[2J\x1b[H{}", render_scene(&scene, frame, current, total));
+        eprint!("\x1b[2J\x1b[H{}", render_effect(&effect, frame, current, total));
 
-        if current >= total {
+        if !loop_playback && current >= total {
             eprintln!();
             break;
         }
 
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(delay);
         frame += 1;
-        current = (current + 1).min(total);
+        current = if loop_playback && current >= total {
+            0
+        } else {
+            (current + 1).min(total)
+        };
     }
 }
 `
 }
 
-export function summarizeScene(state: PlaygroundState) {
-  return state.scene.lines
-    .map((line, index) => `line ${index + 1}: ${line.nodes.map(nodeSummary).join(' + ')}`)
-    .join('\n')
+export function generateCode(
+  effect: EffectDefinition,
+  playback: PlaybackState,
+  target: ExportTarget,
+) {
+  switch (target) {
+    case 'js':
+      return generateJsCode(effect, playback)
+    case 'py':
+      return generatePythonCode(effect, playback)
+    case 'rust':
+      return generateRustCode(effect, playback)
+  }
 }

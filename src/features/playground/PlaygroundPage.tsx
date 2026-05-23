@@ -1,62 +1,98 @@
 import { useEffect, useState } from 'react'
-import { generateCode, summarizeScene } from '../../lib/exporters/generateCode'
+import { generateCode } from '../../lib/exporters/generateCode'
 import { renderScene } from '../../lib/preview/renderScene'
-import type {
-  FrameNode,
-  PlaygroundState,
-  PrimitiveType,
-} from '../../lib/schema/frame'
+import type { ExportTarget, PlaybackState, PlaygroundState } from '../../lib/schema/frame'
+import {
+  compileEffectSource,
+  dslReference,
+  summarizeEffect,
+  supportedPrimitives,
+} from '../../lib/runtime/effectDsl'
 import { decodeState, encodeState } from '../../lib/utils/urlState'
-import { createLine, createNode, defaultPlaygroundState } from './defaultState'
+import {
+  defaultTemplate,
+  effectTemplates,
+  futureIdeas,
+  getTemplateById,
+} from './templates'
 
 const STATE_PARAM = 'state'
+const MAX_FRAME = 48
+const MAX_TOTAL = 100
+const MAX_FPS = 12
 
-const targetLabels: Record<PlaygroundState['exportTarget'], string> = {
+const targetLabels: Record<ExportTarget, string> = {
   js: 'JS / Node',
   py: 'Python',
   rust: 'Rust',
-}
-
-const primitiveLabels: Record<PrimitiveType, string> = {
-  text: 'Text',
-  repeat: 'Repeat',
-  progressBar: 'Progress bar',
-}
-
-function cloneDefaultState() {
-  return structuredClone(defaultPlaygroundState)
-}
-
-function loadInitialState() {
-  if (typeof window === 'undefined') {
-    return cloneDefaultState()
-  }
-
-  const url = new URL(window.location.href)
-  const encoded = url.searchParams.get(STATE_PARAM)
-
-  if (!encoded) {
-    return cloneDefaultState()
-  }
-
-  try {
-    return decodeState<PlaygroundState>(encoded)
-  } catch {
-    return cloneDefaultState()
-  }
 }
 
 function clampInteger(value: number, min: number, max: number) {
   return Math.min(Math.max(Math.round(value), min), max)
 }
 
-function shareUrl(encoded: string) {
+function createDefaultState(): PlaygroundState {
+  return {
+    source: defaultTemplate.source,
+    activeTemplateId: defaultTemplate.id,
+    exportTarget: 'js',
+    playback: { ...defaultTemplate.playback },
+  }
+}
+
+function normalizePlayback(rawPlayback: Partial<PlaybackState> | undefined, fallback: PlaybackState) {
+  const total = clampInteger(Number(rawPlayback?.total ?? fallback.total), 1, MAX_TOTAL)
+
+  return {
+    frame: clampInteger(Number(rawPlayback?.frame ?? fallback.frame), 0, MAX_FRAME),
+    current: clampInteger(Number(rawPlayback?.current ?? fallback.current), 0, total),
+    total,
+    fps: clampInteger(Number(rawPlayback?.fps ?? fallback.fps), 1, MAX_FPS),
+    loop: typeof rawPlayback?.loop === 'boolean' ? rawPlayback.loop : fallback.loop,
+  }
+}
+
+function loadInitialState() {
+  const fallback = createDefaultState()
+
+  if (typeof window === 'undefined') {
+    return fallback
+  }
+
+  const url = new URL(window.location.href)
+  const encoded = url.searchParams.get(STATE_PARAM)
+
+  if (!encoded) {
+    return fallback
+  }
+
+  try {
+    const parsed = decodeState<Partial<PlaygroundState>>(encoded)
+
+    return {
+      source: typeof parsed.source === 'string' ? parsed.source : fallback.source,
+      activeTemplateId:
+        typeof parsed.activeTemplateId === 'string'
+          ? parsed.activeTemplateId
+          : fallback.activeTemplateId,
+      exportTarget:
+        parsed.exportTarget === 'js' || parsed.exportTarget === 'py' || parsed.exportTarget === 'rust'
+          ? parsed.exportTarget
+          : fallback.exportTarget,
+      playback: normalizePlayback(parsed.playback, fallback.playback),
+    }
+  } catch {
+    return fallback
+  }
+}
+
+function shareUrl(encodedState: string) {
   if (typeof window === 'undefined') {
     return ''
   }
 
   const url = new URL(window.location.href)
-  url.searchParams.set(STATE_PARAM, encoded)
+  url.searchParams.set(STATE_PARAM, encodedState)
   return url.toString()
 }
 
@@ -71,13 +107,22 @@ async function copyText(value: string) {
 
 export function PlaygroundPage() {
   const [state, setState] = useState(loadInitialState)
+  const [isPlaying, setIsPlaying] = useState(false)
   const [copied, setCopied] = useState<'code' | 'link' | null>(null)
 
-  const encodedState = encodeState(state)
-  const currentShareUrl = shareUrl(encodedState)
-  const previewText = renderScene(state.scene, state.playback)
-  const generatedCode = generateCode(state)
-  const sceneSummary = summarizeScene(state)
+  const compileResult = compileEffectSource(state.source)
+  const effect = compileResult.ok ? compileResult.effect : null
+  const compileError = compileResult.ok ? null : compileResult.error
+  const playbackActive =
+    isPlaying && Boolean(effect) && (state.playback.loop || state.playback.current < state.playback.total)
+  const previewText = effect
+    ? renderScene(effect, state.playback)
+    : `Compile error\n\n${compileError}`
+  const generatedCode = effect
+    ? generateCode(effect, state.playback, state.exportTarget)
+    : '// fix the editor source before export is available'
+  const currentShareUrl = shareUrl(encodeState(state))
+  const currentTemplate = effectTemplates.find((template) => template.id === state.activeTemplateId)
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -85,9 +130,9 @@ export function PlaygroundPage() {
     }
 
     const url = new URL(window.location.href)
-    url.searchParams.set(STATE_PARAM, encodedState)
+    url.searchParams.set(STATE_PARAM, encodeState(state))
     window.history.replaceState({}, '', url)
-  }, [encodedState])
+  }, [state])
 
   useEffect(() => {
     if (!copied) {
@@ -98,133 +143,182 @@ export function PlaygroundPage() {
     return () => window.clearTimeout(timer)
   }, [copied])
 
-  function updateTitle(value: string) {
-    setState((current) => ({ ...current, title: value }))
+  useEffect(() => {
+    if (!playbackActive) {
+      return
+    }
+
+    const delay = Math.max(1, Math.round(1000 / Math.max(state.playback.fps, 1)))
+    const timer = window.setInterval(() => {
+      setState((current) => {
+        const total = Math.max(current.playback.total, 1)
+        const nextFrame = current.playback.frame + 1
+
+        if (current.playback.loop) {
+          return {
+            ...current,
+            playback: {
+              ...current.playback,
+              frame: nextFrame,
+              current:
+                current.playback.current >= total ? 0 : current.playback.current + 1,
+            },
+          }
+        }
+
+        return {
+          ...current,
+          playback: {
+            ...current.playback,
+            frame: nextFrame,
+            current: Math.min(total, current.playback.current + 1),
+          },
+        }
+      })
+    }, delay)
+
+    return () => window.clearInterval(timer)
+  }, [playbackActive, state.playback.fps, state.playback.loop])
+
+  function loadTemplate(templateId: string) {
+    const template = getTemplateById(templateId)
+    setIsPlaying(false)
+    setState((current) => ({
+      ...current,
+      source: template.source,
+      activeTemplateId: template.id,
+      playback: { ...template.playback },
+    }))
   }
 
-  function updatePlayback(field: 'frame' | 'current' | 'total', rawValue: string) {
-    const parsed = Number(rawValue)
+  function updateSource(value: string) {
+    setIsPlaying(false)
+    setState((current) => ({
+      ...current,
+      source: value,
+      activeTemplateId: 'custom',
+    }))
+  }
 
-    setState((current) => {
-      const total = field === 'total' ? clampInteger(parsed, 1, 100) : current.playback.total
-      const next = {
+  function setExportTarget(target: ExportTarget) {
+    setState((current) => ({
+      ...current,
+      exportTarget: target,
+    }))
+  }
+
+  function updateFrame(rawValue: string) {
+    setState((current) => ({
+      ...current,
+      playback: {
         ...current.playback,
-        [field]: clampInteger(parsed, 0, field === 'frame' ? 24 : total),
-      }
+        frame: clampInteger(Number(rawValue), 0, MAX_FRAME),
+      },
+    }))
+  }
+
+  function updateCurrent(rawValue: string) {
+    setState((current) => ({
+      ...current,
+      playback: {
+        ...current.playback,
+        current: clampInteger(Number(rawValue), 0, current.playback.total),
+      },
+    }))
+  }
+
+  function updateTotal(rawValue: string) {
+    setState((current) => {
+      const total = clampInteger(Number(rawValue), 1, MAX_TOTAL)
 
       return {
         ...current,
         playback: {
-          frame: field === 'frame' ? next.frame : current.playback.frame,
+          ...current.playback,
           total,
-          current:
-            field === 'current'
-              ? clampInteger(parsed, 0, total)
-              : clampInteger(current.playback.current, 0, total),
+          current: Math.min(current.playback.current, total),
         },
       }
     })
   }
 
-  function setExportTarget(target: PlaygroundState['exportTarget']) {
-    setState((current) => ({ ...current, exportTarget: target }))
-  }
-
-  function resetStarter() {
-    setState(cloneDefaultState())
-  }
-
-  function addLine() {
+  function updateFps(rawValue: string) {
     setState((current) => ({
       ...current,
-      scene: {
-        lines: [...current.scene.lines, createLine()],
+      playback: {
+        ...current.playback,
+        fps: clampInteger(Number(rawValue), 1, MAX_FPS),
       },
     }))
   }
 
-  function removeLine(lineId: string) {
-    setState((current) => {
-      if (current.scene.lines.length === 1) {
-        return current
-      }
+  function updateLoop(loop: boolean) {
+    setState((current) => ({
+      ...current,
+      playback: {
+        ...current.playback,
+        loop,
+      },
+    }))
+  }
 
-      return {
+  function resetPlayback() {
+    setIsPlaying(false)
+    setState((current) => ({
+      ...current,
+      playback: {
+        ...current.playback,
+        frame: 0,
+        current: 0,
+      },
+    }))
+  }
+
+  function togglePlayback() {
+    if (!effect) {
+      return
+    }
+
+    if (!playbackActive && !state.playback.loop && state.playback.current >= state.playback.total) {
+      setState((current) => ({
         ...current,
-        scene: {
-          lines: current.scene.lines.filter((line) => line.id !== lineId),
+        playback: {
+          ...current.playback,
+          frame: 0,
+          current: 0,
         },
-      }
-    })
-  }
+      }))
+    }
 
-  function addNode(lineId: string, type: PrimitiveType) {
-    setState((current) => ({
-      ...current,
-      scene: {
-        lines: current.scene.lines.map((line) =>
-          line.id === lineId ? { ...line, nodes: [...line.nodes, createNode(type)] } : line,
-        ),
-      },
-    }))
-  }
-
-  function removeNode(lineId: string, nodeId: string) {
-    setState((current) => ({
-      ...current,
-      scene: {
-        lines: current.scene.lines.map((line) => {
-          if (line.id !== lineId || line.nodes.length === 1) {
-            return line
-          }
-
-          return { ...line, nodes: line.nodes.filter((node) => node.id !== nodeId) }
-        }),
-      },
-    }))
-  }
-
-  function updateNode(lineId: string, nodeId: string, updater: (node: FrameNode) => FrameNode) {
-    setState((current) => ({
-      ...current,
-      scene: {
-        lines: current.scene.lines.map((line) => ({
-          ...line,
-          nodes: line.nodes.map((node) => {
-            if (line.id === lineId && node.id === nodeId) {
-              return updater(node)
-            }
-
-            return node
-          }),
-        })),
-      },
-    }))
+    setIsPlaying(!playbackActive)
   }
 
   return (
     <div className="page">
       <header className="hero-shell panel">
         <div className="hero-copy">
-          <p className="eyebrow">First slice playground</p>
-          <h1>Terminal Shadertoy, trimmed to the core</h1>
+          <p className="eyebrow">Code-first playground</p>
+          <h1>Write JS, get terminal output, keep the IR strict</h1>
           <p className="lede">
-            JS, Python, and Rust first. Single-line friendly, but the scene model already
-            expands to multiline. State lives in the URL, and the code export is the
-            persistence story.
+            The core loop is now the real product surface: a text editor, a small helper DSL,
+            terminal preview, playback controls, and export to JS, Python, and Rust.
           </p>
           <div className="chip-row" aria-label="Current scope">
-            <span className="chip">Targets: JS / Python / Rust</span>
-            <span className="chip">Primitives: text / repeat / progress bar</span>
-            <span className="chip">Multiline-capable scene</span>
-            <span className="chip">Share via URL state</span>
+            <span className="chip">Helpers: {supportedPrimitives.join(' / ')}</span>
+            <span className="chip">Playback: frame / current / total / fps / loop</span>
+            <span className="chip">Multiline-ready from day one</span>
+            <span className="chip">URL state sharing</span>
           </div>
         </div>
 
         <div className="hero-stats">
           <article className="metric-card">
-            <p className="metric-label">playback</p>
-            <p className="metric-value">frame {state.playback.frame}</p>
+            <p className="metric-label">effect</p>
+            <p className="metric-value">{effect?.name ?? 'compile error'}</p>
+          </article>
+          <article className="metric-card">
+            <p className="metric-label">frame</p>
+            <p className="metric-value">{state.playback.frame}</p>
           </article>
           <article className="metric-card">
             <p className="metric-label">progress</p>
@@ -233,45 +327,128 @@ export function PlaygroundPage() {
             </p>
           </article>
           <article className="metric-card">
-            <p className="metric-label">lines</p>
-            <p className="metric-value">{state.scene.lines.length}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">export</p>
-            <p className="metric-value">{targetLabels[state.exportTarget]}</p>
+            <p className="metric-label">playback</p>
+            <p className="metric-value">{state.playback.fps} fps {state.playback.loop ? 'loop' : 'once'}</p>
           </article>
         </div>
       </header>
 
-      <main className="workspace-grid">
-        <section className="panel editor-panel">
+      <main className="code-workspace">
+        <aside className="panel template-panel">
           <div className="section-header">
             <div>
-              <p className="section-kicker">Composer</p>
-              <h2>Scene editor</h2>
+              <p className="section-kicker">Templates</p>
+              <h2>Starter library</h2>
             </div>
-            <button type="button" className="secondary-button" onClick={resetStarter}>
-              Reset starter
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => loadTemplate(defaultTemplate.id)}
+            >
+              Load starter
             </button>
           </div>
 
-          <div className="control-grid compact-grid">
-            <label className="field">
-              <span>effect name</span>
-              <input
-                value={state.title}
-                onChange={(event) => updateTitle(event.target.value)}
-              />
-            </label>
+          <div className="template-list">
+            {effectTemplates.map((template) => (
+              <button
+                type="button"
+                key={template.id}
+                className={
+                  template.id === state.activeTemplateId
+                    ? 'template-card is-active'
+                    : 'template-card'
+                }
+                onClick={() => loadTemplate(template.id)}
+              >
+                <span className="template-name">{template.name}</span>
+                <span className="template-description">{template.description}</span>
+                <span className="template-notes">{template.notes[0]}</span>
+              </button>
+            ))}
+          </div>
 
+          <div className="summary-card">
+            <p className="section-kicker">Not yet</p>
+            <div className="idea-list">
+              {futureIdeas.map((idea) => (
+                <article className="idea-card" key={idea.name}>
+                  <h3>{idea.name}</h3>
+                  <p>{idea.need}</p>
+                  <p className="idea-why">{idea.why}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        <section className="panel source-panel">
+          <div className="section-header">
+            <div>
+              <p className="section-kicker">Editor</p>
+              <h2>Effect source</h2>
+            </div>
+            <div className="status-row">
+              <span className={effect ? 'status-badge is-success' : 'status-badge is-error'}>
+                {effect ? 'Compiled' : 'Compile error'}
+              </span>
+              <span className="status-badge is-muted">
+                {currentTemplate ? currentTemplate.name : 'Custom source'}
+              </span>
+            </div>
+          </div>
+
+          <textarea
+            className="source-editor"
+            spellCheck={false}
+            value={state.source}
+            onChange={(event) => updateSource(event.target.value)}
+          />
+
+          {effect ? (
+            <div className="summary-card">
+              <p className="section-kicker">Compiled effect</p>
+              <p className="section-note">{effect.description ?? 'No description set in the source.'}</p>
+              <pre>{summarizeEffect(effect)}</pre>
+            </div>
+          ) : (
+            <div className="error-card">
+              <p className="section-kicker">Compiler output</p>
+              <pre>{compileError}</pre>
+            </div>
+          )}
+
+          <div className="summary-card">
+            <p className="section-kicker">Helper surface</p>
+            <div className="helper-list">
+              {dslReference.map((entry) => (
+                <article className="helper-row" key={entry.signature}>
+                  <h3>{entry.signature}</h3>
+                  <p>{entry.detail}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="panel preview-panel">
+          <div className="section-header">
+            <div>
+              <p className="section-kicker">Playback</p>
+              <h2>Preview and export</h2>
+            </div>
+            <p className="section-note">4 fps default, loop optional, controls always visible.</p>
+          </div>
+
+          <div className="control-grid compact-grid">
             <label className="field">
               <span>frame</span>
               <input
                 type="range"
                 min="0"
-                max="24"
+                max={String(MAX_FRAME)}
                 value={state.playback.frame}
-                onChange={(event) => updatePlayback('frame', event.target.value)}
+                onChange={(event) => updateFrame(event.target.value)}
               />
             </label>
 
@@ -280,9 +457,9 @@ export function PlaygroundPage() {
               <input
                 type="range"
                 min="0"
-                max={state.playback.total}
+                max={String(state.playback.total)}
                 value={state.playback.current}
-                onChange={(event) => updatePlayback('current', event.target.value)}
+                onChange={(event) => updateCurrent(event.target.value)}
               />
             </label>
 
@@ -291,214 +468,45 @@ export function PlaygroundPage() {
               <input
                 type="number"
                 min="1"
-                max="100"
+                max={String(MAX_TOTAL)}
                 value={state.playback.total}
-                onChange={(event) => updatePlayback('total', event.target.value)}
+                onChange={(event) => updateTotal(event.target.value)}
+              />
+            </label>
+
+            <label className="field">
+              <span>fps</span>
+              <input
+                type="number"
+                min="1"
+                max={String(MAX_FPS)}
+                value={state.playback.fps}
+                onChange={(event) => updateFps(event.target.value)}
               />
             </label>
           </div>
 
-          <div className="line-stack">
-            {state.scene.lines.map((line, lineIndex) => (
-              <article className="line-card" key={line.id}>
-                <div className="line-header">
-                  <div>
-                    <p className="line-label">line {lineIndex + 1}</p>
-                    <p className="line-meta">{line.nodes.length} segment(s)</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => removeLine(line.id)}
-                  >
-                    Remove line
-                  </button>
-                </div>
+          <label className="toggle-field">
+            <input
+              type="checkbox"
+              checked={state.playback.loop}
+              onChange={(event) => updateLoop(event.target.checked)}
+            />
+            <span>play in a loop</span>
+          </label>
 
-                <div className="node-stack">
-                  {line.nodes.map((node) => (
-                    <article className="node-card" key={node.id}>
-                      <div className="node-header">
-                        <span className="badge">{primitiveLabels[node.type]}</span>
-                        <button
-                          type="button"
-                          className="ghost-button"
-                          onClick={() => removeNode(line.id, node.id)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-
-                      {node.type === 'text' ? (
-                        <label className="field">
-                          <span>text</span>
-                          <input
-                            value={node.value}
-                            onChange={(event) =>
-                              updateNode(line.id, node.id, (current) =>
-                                current.type === 'text'
-                                  ? { ...current, value: event.target.value }
-                                  : current,
-                              )
-                            }
-                          />
-                        </label>
-                      ) : null}
-
-                      {node.type === 'repeat' ? (
-                        <div className="control-grid">
-                          <label className="field">
-                            <span>unit</span>
-                            <input
-                              value={node.value}
-                              onChange={(event) =>
-                                updateNode(line.id, node.id, (current) =>
-                                  current.type === 'repeat'
-                                    ? { ...current, value: event.target.value }
-                                    : current,
-                                )
-                              }
-                            />
-                          </label>
-
-                          <label className="field">
-                            <span>count cap</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="8"
-                              value={node.count}
-                              onChange={(event) =>
-                                updateNode(line.id, node.id, (current) =>
-                                  current.type === 'repeat'
-                                    ? {
-                                        ...current,
-                                        count: clampInteger(Number(event.target.value), 0, 8),
-                                      }
-                                    : current,
-                                )
-                              }
-                            />
-                          </label>
-
-                          <label className="toggle-field">
-                            <input
-                              type="checkbox"
-                              checked={node.animated}
-                              onChange={(event) =>
-                                updateNode(line.id, node.id, (current) =>
-                                  current.type === 'repeat'
-                                    ? { ...current, animated: event.target.checked }
-                                    : current,
-                                )
-                              }
-                            />
-                            <span>animate from frame</span>
-                          </label>
-                        </div>
-                      ) : null}
-
-                      {node.type === 'progressBar' ? (
-                        <div className="control-grid">
-                          <label className="field">
-                            <span>width</span>
-                            <input
-                              type="number"
-                              min="4"
-                              max="48"
-                              value={node.width}
-                              onChange={(event) =>
-                                updateNode(line.id, node.id, (current) =>
-                                  current.type === 'progressBar'
-                                    ? {
-                                        ...current,
-                                        width: clampInteger(Number(event.target.value), 4, 48),
-                                      }
-                                    : current,
-                                )
-                              }
-                            />
-                          </label>
-
-                          <label className="field">
-                            <span>filled</span>
-                            <input
-                              value={node.filled}
-                              onChange={(event) =>
-                                updateNode(line.id, node.id, (current) =>
-                                  current.type === 'progressBar'
-                                    ? { ...current, filled: event.target.value || '=' }
-                                    : current,
-                                )
-                              }
-                            />
-                          </label>
-
-                          <label className="field">
-                            <span>empty</span>
-                            <input
-                              value={node.empty}
-                              onChange={(event) =>
-                                updateNode(line.id, node.id, (current) =>
-                                  current.type === 'progressBar'
-                                    ? { ...current, empty: event.target.value || '.' }
-                                    : current,
-                                )
-                              }
-                            />
-                          </label>
-
-                          <label className="toggle-field">
-                            <input
-                              type="checkbox"
-                              checked={node.showCounter}
-                              onChange={(event) =>
-                                updateNode(line.id, node.id, (current) =>
-                                  current.type === 'progressBar'
-                                    ? { ...current, showCounter: event.target.checked }
-                                    : current,
-                                )
-                              }
-                            />
-                            <span>show counter</span>
-                          </label>
-                        </div>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-
-                <div className="inline-actions">
-                  <button type="button" className="secondary-button" onClick={() => addNode(line.id, 'text')}>
-                    + Text
-                  </button>
-                  <button type="button" className="secondary-button" onClick={() => addNode(line.id, 'repeat')}>
-                    + Repeat
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => addNode(line.id, 'progressBar')}
-                  >
-                    + Progress bar
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <button type="button" className="primary-button" onClick={addLine}>
-            Add line
-          </button>
-        </section>
-
-        <section className="panel preview-panel">
-          <div className="section-header">
-            <div>
-              <p className="section-kicker">Preview</p>
-              <h2>Terminal output</h2>
-            </div>
-            <p className="section-note">Single-line friendly, multiline ready.</p>
+          <div className="code-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={togglePlayback}
+              disabled={!effect}
+            >
+              {playbackActive ? 'Pause' : 'Play'}
+            </button>
+            <button type="button" className="secondary-button" onClick={resetPlayback}>
+              Reset playback
+            </button>
           </div>
 
           <div className="terminal-window">
@@ -508,14 +516,9 @@ export function PlaygroundPage() {
                 <span></span>
                 <span></span>
               </div>
-              <p>{state.title}.preview</p>
+              <p>{effect?.name ?? 'compiler-output'}.terminal</p>
             </div>
             <pre className="terminal-output">{previewText}</pre>
-          </div>
-
-          <div className="summary-card">
-            <p className="section-kicker">Scene summary</p>
-            <pre>{sceneSummary}</pre>
           </div>
 
           <div className="section-header export-header">
@@ -531,7 +534,7 @@ export function PlaygroundPage() {
                   role="tab"
                   className={target === state.exportTarget ? 'tab-button is-active' : 'tab-button'}
                   aria-selected={target === state.exportTarget}
-                  onClick={() => setExportTarget(target as PlaygroundState['exportTarget'])}
+                  onClick={() => setExportTarget(target as ExportTarget)}
                 >
                   {label}
                 </button>
@@ -543,8 +546,9 @@ export function PlaygroundPage() {
             <button
               type="button"
               className="primary-button"
+              disabled={!effect}
               onClick={async () => {
-                if (await copyText(generatedCode)) {
+                if (effect && (await copyText(generatedCode))) {
                   setCopied('code')
                 }
               }}
@@ -568,7 +572,7 @@ export function PlaygroundPage() {
 
           <label className="field share-field">
             <span>shareable URL state</span>
-            <textarea readOnly value={currentShareUrl} rows={3} />
+            <textarea readOnly rows={3} value={currentShareUrl} />
           </label>
         </section>
       </main>

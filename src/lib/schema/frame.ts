@@ -1,21 +1,20 @@
 export type PrimitiveType = 'text' | 'repeat' | 'progressBar'
 
+export type RepeatSource = 'fixed' | 'frame'
+
 export type TextNode = {
-  id: string
   type: 'text'
   value: string
 }
 
 export type RepeatNode = {
-  id: string
   type: 'repeat'
   value: string
   count: number
-  animated: boolean
+  from: RepeatSource
 }
 
 export type ProgressBarNode = {
-  id: string
   type: 'progressBar'
   width: number
   filled: string
@@ -25,26 +24,29 @@ export type ProgressBarNode = {
 
 export type FrameNode = TextNode | RepeatNode | ProgressBarNode
 
-export type FrameLine = {
-  id: string
-  nodes: FrameNode[]
+export type FrameScene = {
+  lines: FrameNode[][]
 }
 
-export type FrameScene = {
-  lines: FrameLine[]
+export type EffectDefinition = {
+  name: string
+  description?: string
+  lines: FrameNode[][]
 }
 
 export type PlaybackState = {
   frame: number
   current: number
   total: number
+  fps: number
+  loop: boolean
 }
 
 export type ExportTarget = 'js' | 'py' | 'rust'
 
 export type PlaygroundState = {
-  title: string
-  scene: FrameScene
+  source: string
+  activeTemplateId: string
   playback: PlaybackState
   exportTarget: ExportTarget
 }
