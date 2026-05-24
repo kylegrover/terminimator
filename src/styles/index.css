@@ -106,7 +106,7 @@ code {
 .page {
   width: min(1440px, calc(100% - 28px));
   margin: 0 auto;
-  padding: 28px 0 42px;
+  padding: 20px 0 36px;
 }
 
 .panel {
@@ -263,8 +263,9 @@ code {
 
 .code-workspace {
   display: grid;
-  grid-template-columns: minmax(270px, 0.55fr) minmax(0, 0.95fr) minmax(0, 1.05fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.9fr);
+  gap: 20px;
+  align-items: start;
 }
 
 .template-panel,
@@ -280,7 +281,8 @@ code {
 .control-grid,
 .template-list,
 .helper-list,
-.idea-list {
+.idea-list,
+.details-grid {
   display: grid;
   gap: 14px;
 }
@@ -315,6 +317,10 @@ code {
 }
 
 .compact-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.details-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -359,6 +365,23 @@ code {
   color: var(--accent-ink);
 }
 
+.editor-toolbar {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.template-select-field {
+  min-width: min(100%, 260px);
+}
+
+.template-context {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
 .field,
 .toggle-field {
   display: grid;
@@ -378,6 +401,7 @@ code {
 
 .source-editor,
 .field input,
+.field select,
 .share-field textarea {
   width: 100%;
   border: 1px solid rgba(83, 67, 35, 0.14);
@@ -388,8 +412,12 @@ code {
 }
 
 .source-editor {
-  min-height: 560px;
+  min-height: 680px;
   resize: vertical;
+}
+
+.template-select {
+  appearance: none;
 }
 
 .summary-card pre,
@@ -493,6 +521,15 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .details-grid,
+  .source-editor {
+    min-height: 460px;
+  }
+
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+
   .source-editor {
     min-height: 420px;
   }
@@ -521,6 +558,7 @@ button:disabled {
   }
 
   .window-bar,
+  .editor-toolbar,
   .section-header,
   .export-header,
   .code-actions {

@@ -2,12 +2,7 @@ import { useEffect, useState } from 'react'
 import { generateCode } from '../../lib/exporters/generateCode'
 import { renderScene } from '../../lib/preview/renderScene'
 import type { ExportTarget, PlaybackState, PlaygroundState } from '../../lib/schema/frame'
-import {
-  compileEffectSource,
-  dslReference,
-  summarizeEffect,
-  supportedPrimitives,
-} from '../../lib/runtime/effectDsl'
+import { compileEffectSource, dslReference, summarizeEffect } from '../../lib/runtime/effectDsl'
 import { decodeState, encodeState } from '../../lib/utils/urlState'
 import {
   defaultTemplate,
@@ -295,108 +290,64 @@ export function PlaygroundPage() {
 
   return (
     <div className="page">
-      <header className="hero-shell panel">
-        <div className="hero-copy">
-          <p className="eyebrow">Code-first playground</p>
-          <h1>Write JS, get terminal output, keep the IR strict</h1>
-          <p className="lede">
-            The core loop is now the real product surface: a text editor, a small helper DSL,
-            terminal preview, playback controls, and export to JS, Python, and Rust.
-          </p>
-          <div className="chip-row" aria-label="Current scope">
-            <span className="chip">Helpers: {supportedPrimitives.join(' / ')}</span>
-            <span className="chip">Playback: frame / current / total / fps / loop</span>
-            <span className="chip">Multiline-ready from day one</span>
-            <span className="chip">URL state sharing</span>
-          </div>
-        </div>
-
-        <div className="hero-stats">
-          <article className="metric-card">
-            <p className="metric-label">effect</p>
-            <p className="metric-value">{effect?.name ?? 'compile error'}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">frame</p>
-            <p className="metric-value">{state.playback.frame}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">progress</p>
-            <p className="metric-value">
-              {state.playback.current}/{state.playback.total}
-            </p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">playback</p>
-            <p className="metric-value">{state.playback.fps} fps {state.playback.loop ? 'loop' : 'once'}</p>
-          </article>
-        </div>
-      </header>
-
       <main className="code-workspace">
-        <aside className="panel template-panel">
-          <div className="section-header">
-            <div>
-              <p className="section-kicker">Templates</p>
-              <h2>Starter library</h2>
-            </div>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => loadTemplate(defaultTemplate.id)}
-            >
-              Load starter
-            </button>
-          </div>
-
-          <div className="template-list">
-            {effectTemplates.map((template) => (
-              <button
-                type="button"
-                key={template.id}
-                className={
-                  template.id === state.activeTemplateId
-                    ? 'template-card is-active'
-                    : 'template-card'
-                }
-                onClick={() => loadTemplate(template.id)}
-              >
-                <span className="template-name">{template.name}</span>
-                <span className="template-description">{template.description}</span>
-                <span className="template-notes">{template.notes[0]}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="summary-card">
-            <p className="section-kicker">Not yet</p>
-            <div className="idea-list">
-              {futureIdeas.map((idea) => (
-                <article className="idea-card" key={idea.name}>
-                  <h3>{idea.name}</h3>
-                  <p>{idea.need}</p>
-                  <p className="idea-why">{idea.why}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </aside>
-
         <section className="panel source-panel">
-          <div className="section-header">
+          <div className="editor-toolbar">
             <div>
-              <p className="section-kicker">Editor</p>
-              <h2>Effect source</h2>
+              <p className="section-kicker">Frame script</p>
+              <h2>Write the lines</h2>
+              <p className="section-note">
+                One print(...) call equals one terminal row. bar(), repeat(), frame, step,
+                and steps can sit inline with normal JS strings.
+              </p>
             </div>
-            <div className="status-row">
-              <span className={effect ? 'status-badge is-success' : 'status-badge is-error'}>
-                {effect ? 'Compiled' : 'Compile error'}
-              </span>
-              <span className="status-badge is-muted">
-                {currentTemplate ? currentTemplate.name : 'Custom source'}
-              </span>
-            </div>
+
+            <label className="field template-select-field">
+              <span>Starter</span>
+              <select
+                className="template-select"
+                value={currentTemplate ? currentTemplate.id : 'custom'}
+                onChange={(event) => {
+                  const templateId = event.target.value
+
+                  if (templateId === 'custom') {
+                    setState((current) => ({
+                      ...current,
+                      activeTemplateId: 'custom',
+                    }))
+                    return
+                  }
+
+                  loadTemplate(templateId)
+                }}
+              >
+                <option value="custom">Custom source</option>
+                {effectTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
+
+          <div className="status-row">
+            <span className={effect ? 'status-badge is-success' : 'status-badge is-error'}>
+              {effect ? 'Compiled' : 'Compile error'}
+            </span>
+            <span className="status-badge is-muted">
+              {currentTemplate ? currentTemplate.name : 'Custom source'}
+            </span>
+            <span className="status-badge is-muted">
+              {state.playback.current}/{state.playback.total} at {state.playback.fps} fps
+            </span>
+          </div>
+
+          <p className="template-context">
+            {currentTemplate
+              ? `${currentTemplate.description} ${currentTemplate.notes[0]}`
+              : 'The editor is in custom mode. Pick a starter from the dropdown if you want to replace the current source.'}
+          </p>
 
           <textarea
             className="source-editor"
@@ -418,15 +369,30 @@ export function PlaygroundPage() {
             </div>
           )}
 
-          <div className="summary-card">
-            <p className="section-kicker">Helper surface</p>
-            <div className="helper-list">
-              {dslReference.map((entry) => (
-                <article className="helper-row" key={entry.signature}>
-                  <h3>{entry.signature}</h3>
-                  <p>{entry.detail}</p>
-                </article>
-              ))}
+          <div className="details-grid">
+            <div className="summary-card">
+              <p className="section-kicker">Helper surface</p>
+              <div className="helper-list">
+                {dslReference.map((entry) => (
+                  <article className="helper-row" key={entry.signature}>
+                    <h3>{entry.signature}</h3>
+                    <p>{entry.detail}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="summary-card">
+              <p className="section-kicker">Next primitives</p>
+              <div className="idea-list">
+                {futureIdeas.map((idea) => (
+                  <article className="idea-card" key={idea.name}>
+                    <h3>{idea.name}</h3>
+                    <p>{idea.need}</p>
+                    <p className="idea-why">{idea.why}</p>
+                  </article>
+                ))}
+              </div>
             </div>
           </div>
         </section>

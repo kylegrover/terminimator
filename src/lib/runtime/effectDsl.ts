@@ -6,6 +6,8 @@ import type {
   RepeatNode,
   RepeatSource,
   TextNode,
+  ValueNode,
+  ValueSource,
 } from '../schema/frame'
 
 type DslRepeatOptions = {
@@ -26,6 +28,16 @@ type DslEffectDefinition = {
   lines?: unknown
 }
 
+type InlineToken = {
+  __terminimatorToken: string
+  toString(): string
+  valueOf(): string
+  [Symbol.toPrimitive](): string
+}
+
+const INLINE_TOKEN_PREFIX = '__terminimator_inline_'
+const INLINE_TOKEN_PATTERN = /__terminimator_inline_\d+__/g
+
 export type CompileResult =
   | {
       ok: true
@@ -38,20 +50,24 @@ export type CompileResult =
 
 export const dslReference = [
   {
-    signature: 'return defineEffect({ name, description?, lines: [...] })',
-    detail: 'Every source snippet should return one effect definition.',
+    signature: "title('two-line-status')",
+    detail: 'Set the terminal label without wrapping everything in a returned object.',
   },
   {
-    signature: 'line(text(...), repeat(...), progressBar(...))',
-    detail: 'A line becomes one terminal row. Multiple lines already render as multiline output.',
+    signature: "print('indexing project files')",
+    detail: 'Each print(...) call becomes one terminal row in the preview and exports.',
+  },
+  {
+    signature: "print(`progress ${bar({ width: 20, showCounter: false })} ${step}/${steps}`)",
+    detail: 'bar(), step, steps, and frame can be embedded directly inside strings or template literals.',
   },
   {
     signature: "repeat('.', { count: 3, from: 'frame' })",
-    detail: 'Use frame-driven repeat when the playback frame should animate the node.',
+    detail: 'Use repeat(...) when the playback frame should animate part of a line.',
   },
   {
-    signature: 'progressBar({ width: 24, filled: "=", empty: ".", showCounter: true })',
-    detail: 'The bar reads current and total from the playback controls.',
+    signature: 'counter()',
+    detail: 'Use counter() when you want current/total without manually building the string.',
   },
 ] as const
 
@@ -59,14 +75,21 @@ function clampInteger(value: number, min: number, max: number) {
   return Math.min(Math.max(Math.round(value), min), max)
 }
 
-function text(value: string): TextNode {
+function textNode(value: unknown): TextNode {
   return {
     type: 'text',
     value: String(value),
   }
 }
 
-function repeat(value: string, options: DslRepeatOptions = {}): RepeatNode {
+function valueNode(source: ValueSource): ValueNode {
+  return {
+    type: 'value',
+    source,
+  }
+}
+
+function repeatNode(value: string, options: DslRepeatOptions = {}): RepeatNode {
   return {
     type: 'repeat',
     value: String(value),
@@ -75,7 +98,7 @@ function repeat(value: string, options: DslRepeatOptions = {}): RepeatNode {
   }
 }
 
-function progressBar(options: DslProgressBarOptions = {}): ProgressBarNode {
+function progressBarNode(options: DslProgressBarOptions = {}): ProgressBarNode {
   return {
     type: 'progressBar',
     width: clampInteger(options.width ?? 24, 4, 48),
@@ -85,18 +108,199 @@ function progressBar(options: DslProgressBarOptions = {}): ProgressBarNode {
   }
 }
 
-function line(...nodes: FrameNode[]) {
-  return nodes
-}
-
 function defineEffect(effect: DslEffectDefinition) {
   return effect
+}
+
+function isFrameNode(value: unknown): value is FrameNode {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const maybeNode = value as Record<string, unknown>
+
+  return (
+    maybeNode.type === 'text' ||
+    maybeNode.type === 'value' ||
+    maybeNode.type === 'repeat' ||
+    maybeNode.type === 'progressBar'
+  )
+}
+
+function createInlineToken(token: string): InlineToken {
+  const stringify = () => token
+
+  return {
+    __terminimatorToken: token,
+    toString: stringify,
+    valueOf: stringify,
+    [Symbol.toPrimitive]: stringify,
+  }
+}
+
+function isInlineToken(value: unknown): value is InlineToken {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      '__terminimatorToken' in value &&
+      typeof (value as InlineToken).__terminimatorToken === 'string',
+  )
+}
+
+function createScriptBuilder() {
+  const state: {
+    name?: string
+    description?: string
+    lines: FrameNode[][]
+  } = {
+    lines: [],
+  }
+
+  const inlineTokens = new Map<string, FrameNode>()
+  let tokenIndex = 0
+
+  function tokenize(node: FrameNode) {
+    const token = `${INLINE_TOKEN_PREFIX}${tokenIndex}__`
+    tokenIndex += 1
+    inlineTokens.set(token, node)
+    return createInlineToken(token)
+  }
+
+  const frame = tokenize(valueNode('frame'))
+  const current = tokenize(valueNode('current'))
+  const total = tokenize(valueNode('total'))
+
+  function expandString(value: string) {
+    const nodes: FrameNode[] = []
+    let lastIndex = 0
+
+    for (const match of value.matchAll(INLINE_TOKEN_PATTERN)) {
+      const token = match[0]
+      const tokenIndex = match.index ?? 0
+
+      if (tokenIndex > lastIndex) {
+        nodes.push(textNode(value.slice(lastIndex, tokenIndex)))
+      }
+
+      const node = inlineTokens.get(token)
+      if (node) {
+        nodes.push(node)
+      } else {
+        nodes.push(textNode(token))
+      }
+
+      lastIndex = tokenIndex + token.length
+    }
+
+    if (lastIndex < value.length) {
+      nodes.push(textNode(value.slice(lastIndex)))
+    }
+
+    if (nodes.length === 0) {
+      return [textNode(value)]
+    }
+
+    return nodes
+  }
+
+  function expandPart(part: unknown): FrameNode[] {
+    if (part == null || part === false) {
+      return []
+    }
+
+    if (Array.isArray(part)) {
+      return part.flatMap((value) => expandPart(value))
+    }
+
+    if (isInlineToken(part)) {
+      const tokenNode = inlineTokens.get(part.__terminimatorToken)
+      return tokenNode ? [tokenNode] : []
+    }
+
+    if (isFrameNode(part)) {
+      return [part]
+    }
+
+    if (typeof part === 'string') {
+      return expandString(part)
+    }
+
+    if (typeof part === 'number' || typeof part === 'boolean' || typeof part === 'bigint') {
+      return [textNode(String(part))]
+    }
+
+    return expandString(String(part))
+  }
+
+  function createLine(...parts: unknown[]) {
+    const nodes = parts.flatMap((part) => expandPart(part))
+    return nodes.length > 0 ? nodes : [textNode('')]
+  }
+
+  return {
+    title(value: unknown) {
+      state.name = String(value ?? '').trim()
+    },
+    describe(value: unknown) {
+      state.description = String(value ?? '').trim()
+    },
+    print(...parts: unknown[]) {
+      state.lines.push(createLine(...parts))
+    },
+    line(...parts: unknown[]) {
+      return createLine(...parts)
+    },
+    text(value: unknown) {
+      return textNode(value)
+    },
+    repeat(value: string, options: DslRepeatOptions = {}) {
+      return tokenize(repeatNode(value, options))
+    },
+    progressBar(options: DslProgressBarOptions = {}) {
+      return tokenize(progressBarNode(options))
+    },
+    bar(options: DslProgressBarOptions = {}) {
+      return tokenize(progressBarNode(options))
+    },
+    counter(separator = '/') {
+      return `${current}${separator}${total}`
+    },
+    frame,
+    current,
+    total,
+    step: current,
+    steps: total,
+    hasStructuredOutput() {
+      return state.lines.length > 0 || state.name !== undefined || state.description !== undefined
+    },
+    toEffect() {
+      if (state.lines.length === 0) {
+        throw new Error(
+          'Add at least one print(...) line, or return defineEffect({ ... }) if you need the legacy object form.',
+        )
+      }
+
+      return normalizeEffect({
+        name: state.name,
+        description: state.description,
+        lines: state.lines,
+      })
+    },
+  }
 }
 
 function normalizeTextNode(rawNode: Record<string, unknown>): TextNode {
   return {
     type: 'text',
     value: String(rawNode.value ?? ''),
+  }
+}
+
+function normalizeValueNode(rawNode: Record<string, unknown>): ValueNode {
+  return {
+    type: 'value',
+    source:
+      rawNode.source === 'frame' || rawNode.source === 'total' ? rawNode.source : 'current',
   }
 }
 
@@ -131,6 +335,10 @@ function normalizeNode(rawNode: unknown, lineIndex: number, nodeIndex: number): 
     return normalizeTextNode(typedNode)
   }
 
+  if (nodeType === 'value') {
+    return normalizeValueNode(typedNode)
+  }
+
   if (nodeType === 'repeat') {
     return normalizeRepeatNode(typedNode)
   }
@@ -146,7 +354,9 @@ function normalizeNode(rawNode: unknown, lineIndex: number, nodeIndex: number): 
 
 function normalizeEffect(rawEffect: unknown): EffectDefinition {
   if (!rawEffect || typeof rawEffect !== 'object') {
-    throw new Error('The editor must return defineEffect({ ... }).')
+    throw new Error(
+      'The script did not produce an effect. Use print(...) lines, or return defineEffect({ ... }) for the legacy object form.',
+    )
   }
 
   const effect = rawEffect as Record<string, unknown>
@@ -189,6 +399,10 @@ export function summarizeEffect(effect: EffectDefinition) {
             return `text(${node.value.length})`
           }
 
+          if (node.type === 'value') {
+            return `value(${node.source})`
+          }
+
           if (node.type === 'repeat') {
             return `repeat(${node.count}, ${node.from})`
           }
@@ -204,19 +418,60 @@ export function summarizeEffect(effect: EffectDefinition) {
 
 export function compileEffectSource(source: string): CompileResult {
   try {
+    const builder = createScriptBuilder()
     const factory = new Function(
       'defineEffect',
       'line',
       'text',
       'repeat',
       'progressBar',
+      'bar',
+      'title',
+      'describe',
+      'print',
+      'frame',
+      'current',
+      'total',
+      'step',
+      'steps',
+      'counter',
       `"use strict";\nreturn (() => {\n${source}\n})()\n//# sourceURL=terminimator-effect.js`,
     )
 
-    const rawEffect = factory(defineEffect, line, text, repeat, progressBar)
+    const rawEffect = factory(
+      defineEffect,
+      builder.line,
+      builder.text,
+      builder.repeat,
+      builder.progressBar,
+      builder.bar,
+      builder.title,
+      builder.describe,
+      builder.print,
+      builder.frame,
+      builder.current,
+      builder.total,
+      builder.step,
+      builder.steps,
+      builder.counter,
+    )
+
+    if (rawEffect !== undefined) {
+      if (builder.hasStructuredOutput()) {
+        throw new Error(
+          'Choose one source style: either use print()/title()/describe() or return defineEffect({ ... }) for the legacy object form.',
+        )
+      }
+
+      return {
+        ok: true,
+        effect: normalizeEffect(rawEffect),
+      }
+    }
+
     return {
       ok: true,
-      effect: normalizeEffect(rawEffect),
+      effect: builder.toEffect(),
     }
   } catch (error) {
     return {
@@ -226,4 +481,4 @@ export function compileEffectSource(source: string): CompileResult {
   }
 }
 
-export const supportedPrimitives: PrimitiveType[] = ['text', 'repeat', 'progressBar']
+export const supportedPrimitives: PrimitiveType[] = ['text', 'value', 'repeat', 'progressBar']

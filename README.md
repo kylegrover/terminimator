@@ -13,7 +13,7 @@ The product direction is "Terminal Shadertoy": immediate feedback, a strong auth
 - No node graph until the underlying frame primitives are proven.
 - First export targets are JS, Python, and Rust.
 - Authoring is now code-first instead of form-first.
-- The current authoring surface is strict JS that builds a terminal IR through helper functions.
+- The current authoring surface is strict JS in a frame-script style: `title(...)`, `describe(...)`, and `print(...)` build the terminal IR.
 - Sharing is URL-encoded state.
 - Persistence is the generated standalone code.
 
@@ -46,7 +46,7 @@ terminimator/
 ```text
 src/
   features/
-    playground/    # scene editor, playback controls, share link, export panel
+    playground/    # frame-script editor, playback controls, share link, export panel
   lib/
     schema/        # multiline-capable scene types
     preview/       # frame rendering for the browser preview
@@ -54,20 +54,22 @@ src/
     utils/         # URL-safe state encoding
 ```
 
-Current primitives are intentionally tiny:
+Current user-facing helpers are intentionally tiny:
 
-- `text`
+- `print`
 - `repeat`
-- `progressBar`
+- `bar`
+- `counter`
+- `frame` / `step` / `steps`
 
-That is enough to validate the scene model, text-editor workflow, preview loop, and export strategy before widening the primitive surface.
+That is enough to validate the frame-script workflow, shared IR, preview loop, and export strategy before widening the primitive surface.
 
 ## Guiding decisions
 
 - Keep the app deployable as static files from day one.
 - Keep the scene model multiline-capable even if many early effects fit on one line.
 - Make preview, exporters, and the later node graph all target the same shared frame IR.
-- Keep the current JS authoring surface strict enough that it compiles directly to the shared IR.
+- Keep the current JS authoring surface strict enough that frame-script source compiles directly to the shared IR.
 - Let output code be the persistence format; use URL-encoded state for lightweight sharing.
 - Lean on established libraries when they clearly reduce code, but avoid dependency weight before it earns its place.
 
@@ -97,7 +99,7 @@ npm run lint
 
 ## Near-term milestones
 
-1. Tighten the strict JS helper surface and keep the IR honest as templates expand.
+1. Tighten the frame-script helper surface and keep the IR honest as templates expand.
 2. Improve the template library and let unsupported ideas drive the next primitive additions.
 3. Improve the generated JS, Python, and Rust output until it is clean enough to drop into real scripts.
 4. Add richer shareable URL state handling and better editor ergonomics.

@@ -31,19 +31,11 @@ export const effectTemplates: EffectTemplate[] = [
       'Exercises multiline scenes immediately.',
       'Uses both frame-driven motion and progress-driven motion.',
     ],
-    source: `return defineEffect({
-  name: 'compile-progress',
-  description: 'Animated dots plus a counter bar on a second line.',
-  lines: [
-    line(
-      text('loading'),
-      repeat('.', { count: 3, from: 'frame' }),
-      text('  '),
-      progressBar({ width: 24, filled: '=', empty: '.', showCounter: true }),
-    ),
-    line(text('phase: compiling assets')),
-  ],
-})`,
+    source: `title('compile-progress')
+describe('Animated dots plus a counter bar on a second line.')
+
+print('loading' + repeat('.', { count: 3, from: 'frame' }) + '  ' + bar({ width: 24, filled: '=', empty: '.', showCounter: false }) + ' ' + counter())
+print('phase: compiling assets')`,
   },
   {
     id: 'quiet-dots',
@@ -60,16 +52,10 @@ export const effectTemplates: EffectTemplate[] = [
       'Smallest viable loader primitive set.',
       'Good baseline for testing pacing decisions.',
     ],
-    source: `return defineEffect({
-  name: 'quiet-dots',
-  description: 'Minimal loader made from text plus one repeat primitive.',
-  lines: [
-    line(
-      text('thinking'),
-      repeat('.', { count: 3, from: 'frame' }),
-    ),
-  ],
-})`,
+    source: `title('quiet-dots')
+describe('Minimal loader made from text plus one repeat primitive.')
+
+print('thinking' + repeat('.', { count: 3, from: 'frame' }))`,
   },
   {
     id: 'download-meter',
@@ -86,16 +72,10 @@ export const effectTemplates: EffectTemplate[] = [
       'Tests export fidelity for different bar glyphs.',
       'Keeps the scene single-line while still using the same IR.',
     ],
-    source: `return defineEffect({
-  name: 'download-meter',
-  description: 'Bar-first progress output with a louder fill style.',
-  lines: [
-    line(
-      text('download '),
-      progressBar({ width: 30, filled: '#', empty: '-', showCounter: true }),
-    ),
-  ],
-})`,
+    source: `title('download-meter')
+describe('Bar-first progress output with a louder fill style.')
+
+print('download ' + bar({ width: 30, filled: '#', empty: '-', showCounter: true }))`,
   },
   {
     id: 'two-line-status',
@@ -112,17 +92,11 @@ export const effectTemplates: EffectTemplate[] = [
       'Validates that the editor does not assume one line forever.',
       'Good template for future status dashboards.',
     ],
-    source: `return defineEffect({
-  name: 'two-line-status',
-  description: 'Stacked status text with a simple bar below it.',
-  lines: [
-    line(text('indexing project files')),
-    line(
-      text('progress '),
-      progressBar({ width: 20, filled: '=', empty: '.', showCounter: true }),
-    ),
-  ],
-})`,
+    source: `title('two-line-status')
+describe('Stacked status text with a simple bar below it.')
+
+print('indexing project files')
+print(\`progress \${bar({ width: 20, filled: '=', empty: '.', showCounter: false })} \${step}/\${steps}\`)`,
   },
 ]
 

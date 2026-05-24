@@ -1,10 +1,17 @@
-export type PrimitiveType = 'text' | 'repeat' | 'progressBar'
+export type PrimitiveType = 'text' | 'value' | 'repeat' | 'progressBar'
+
+export type ValueSource = 'frame' | 'current' | 'total'
 
 export type RepeatSource = 'fixed' | 'frame'
 
 export type TextNode = {
   type: 'text'
   value: string
+}
+
+export type ValueNode = {
+  type: 'value'
+  source: ValueSource
 }
 
 export type RepeatNode = {
@@ -22,7 +29,7 @@ export type ProgressBarNode = {
   showCounter: boolean
 }
 
-export type FrameNode = TextNode | RepeatNode | ProgressBarNode
+export type FrameNode = TextNode | ValueNode | RepeatNode | ProgressBarNode
 
 export type FrameScene = {
   lines: FrameNode[][]

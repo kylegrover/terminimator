@@ -1,4 +1,10 @@
-import type { EffectDefinition, ExportTarget, FrameNode, PlaybackState } from '../schema/frame'
+import type {
+  EffectDefinition,
+  ExportTarget,
+  FrameNode,
+  PlaybackState,
+  ValueSource,
+} from '../schema/frame'
 
 function effectJson(effect: EffectDefinition) {
   return JSON.stringify(effect, null, 2)
@@ -17,10 +23,23 @@ function rustString(value: string) {
     .replace(/\t/g, '\\t')}"`
 }
 
+function rustValueSource(source: ValueSource) {
+  switch (source) {
+    case 'frame':
+      return 'ValueSource::Frame'
+    case 'current':
+      return 'ValueSource::Current'
+    case 'total':
+      return 'ValueSource::Total'
+  }
+}
+
 function renderRustNode(node: FrameNode) {
   switch (node.type) {
     case 'text':
       return `Node::Text(String::from(${rustString(node.value)}))`
+    case 'value':
+      return `Node::Value(${rustValueSource(node.source)})`
     case 'repeat':
       return `Node::Repeat { value: String::from(${rustString(node.value)}), count: ${node.count}, from_frame: ${node.from === 'frame'} }`
     case 'progressBar':
@@ -39,6 +58,8 @@ function renderNode(node, ctx) {
   switch (node.type) {
     case 'text':
       return node.value
+    case 'value':
+      return String(ctx[node.source])
     case 'repeat': {
       const count = node.from === 'frame' ? ctx.frame % (node.count + 1) : node.count
       return node.value.repeat(count)
@@ -96,6 +117,9 @@ def render_node(node, ctx):
     if node["type"] == "text":
         return node["value"]
 
+  if node["type"] == "value":
+    return str(ctx[node["source"]])
+
     if node["type"] == "repeat":
         count = ctx["frame"] % (node["count"] + 1) if node["from"] == "frame" else node["count"]
         return node["value"] * count
@@ -142,8 +166,16 @@ function generateRustCode(effect: EffectDefinition, playback: PlaybackState) {
 use std::time::Duration;
 
 #[derive(Clone)]
+enum ValueSource {
+  Frame,
+  Current,
+  Total,
+}
+
+#[derive(Clone)]
 enum Node {
     Text(String),
+  Value(ValueSource),
     Repeat { value: String, count: usize, from_frame: bool },
     ProgressBar { width: usize, filled: String, empty: String, show_counter: bool },
 }
@@ -151,6 +183,11 @@ enum Node {
 fn render_node(node: &Node, frame: usize, current: usize, total: usize) -> String {
     match node {
         Node::Text(value) => value.clone(),
+    Node::Value(source) => match source {
+      ValueSource::Frame => frame.to_string(),
+      ValueSource::Current => current.to_string(),
+      ValueSource::Total => total.to_string(),
+    },
         Node::Repeat { value, count, from_frame } => {
             let amount = if *from_frame { frame % (count + 1) } else { *count };
             value.repeat(amount)

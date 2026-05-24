@@ -1,4 +1,4 @@
-import type { EffectDefinition, FrameNode, PlaybackState } from '../schema/frame'
+import type { EffectDefinition, FrameNode, PlaybackState, ValueSource } from '../schema/frame'
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -12,10 +12,23 @@ function repeatCount(node: Extract<FrameNode, { type: 'repeat' }>, frame: number
   return frame % (clamp(node.count, 0, 32) + 1)
 }
 
+function readValue(source: ValueSource, playback: PlaybackState) {
+  switch (source) {
+    case 'frame':
+      return playback.frame
+    case 'current':
+      return playback.current
+    case 'total':
+      return playback.total
+  }
+}
+
 export function renderNode(node: FrameNode, playback: PlaybackState) {
   switch (node.type) {
     case 'text':
       return node.value
+    case 'value':
+      return String(readValue(node.source, playback))
     case 'repeat':
       return node.value.repeat(repeatCount(node, playback.frame))
     case 'progressBar': {

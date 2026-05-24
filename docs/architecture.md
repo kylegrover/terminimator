@@ -40,7 +40,7 @@ Before introducing a freer authoring surface or a node graph, the project needs 
 
 ### JavaScript with rails
 
-User-authored code should be JavaScript, but not freeform terminal scripting. The author writes strict JS that returns structured frame data assembled from provided helper primitives.
+User-authored code should be JavaScript, but not freeform terminal scripting. The author writes a strict frame-script that calls helpers like `title(...)`, `describe(...)`, and `print(...)`.
 
 That keeps the authoring experience flexible while preserving a shared intermediate representation for preview and export.
 
@@ -56,35 +56,44 @@ That IR is the real product core.
 
 ### Author contract
 
-The browser editor should ask the user to implement a function shaped roughly like this:
+The browser editor should ask the user to write source shaped roughly like this:
 
 ```ts
-export function renderFrame(ctx, fx) {
-  return fx.line([
-    fx.text('loading'),
-    fx.repeat('.', ctx.frame % 4),
-    fx.progressBar({ current: ctx.step, total: ctx.total, width: 24 }),
-  ])
-}
+title('compile-progress')
+describe('Animated dots plus a counter bar on a second line.')
+
+print(
+  'loading' +
+    repeat('.', { count: 3, from: 'frame' }) +
+    '  ' +
+    bar({ width: 24, filled: '=', empty: '.', showCounter: false }) +
+    ' ' +
+    counter(),
+)
+
+print('phase: compiling assets')
 ```
 
-`ctx` should expose deterministic runtime values such as:
+The script surface should expose deterministic runtime values and helpers such as:
 
-- `time`
 - `frame`
-- `progress`
 - `step`
-- `total`
-- `seed`
-- user-defined variables that come from the current preset or controls
+- `steps`
+- `counter()`
+- `bar(...)`
+- `repeat(...)`
+- `print(...)`
 
-`fx` should expose pure helpers that return structured nodes, not terminal side effects.
+Those helpers should still compile to pure structured nodes, not terminal side effects.
+
+The older `return defineEffect({ ... })` object form can remain supported as a compatibility path for shared URLs, but it is no longer the primary authoring mode.
 
 Potential early primitives:
 
-- `text`
+- `print`
 - `repeat`
-- `progressBar`
+- `bar`
+- `counter`
 
 These are the first primitives already represented in the repo and available in the editor helper surface.
 
