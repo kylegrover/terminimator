@@ -27,6 +27,10 @@ const targetLabels: Record<ExportTarget, string> = {
   rust: 'Rust',
 }
 
+type ShareablePlaygroundState = Pick<PlaygroundState, 'source' | 'activeTemplateId' | 'exportTarget'> & {
+  playback: Pick<PlaybackState, 'total' | 'fps' | 'loop'>
+}
+
 function clampInteger(value: number, min: number, max: number) {
   return Math.min(Math.max(Math.round(value), min), max)
 }
@@ -99,6 +103,19 @@ function shareUrl(encodedState: string) {
   return url.toString()
 }
 
+function createShareableState(state: PlaygroundState): ShareablePlaygroundState {
+  return {
+    source: state.source,
+    activeTemplateId: state.activeTemplateId,
+    exportTarget: state.exportTarget,
+    playback: {
+      total: state.playback.total,
+      fps: state.playback.fps,
+      loop: state.playback.loop,
+    },
+  }
+}
+
 async function copyText(value: string) {
   if (!navigator.clipboard) {
     return false
@@ -131,7 +148,8 @@ export function PlaygroundPage() {
   const generatedCode = effect
     ? generateCode(effect, state.playback, state.exportTarget)
     : '// fix the editor source before export is available'
-  const currentShareUrl = shareUrl(encodeState(state))
+  const encodedShareState = encodeState(createShareableState(state))
+  const currentShareUrl = shareUrl(encodedShareState)
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -139,9 +157,13 @@ export function PlaygroundPage() {
     }
 
     const url = new URL(window.location.href)
-    url.searchParams.set(STATE_PARAM, encodeState(state))
+    if (url.searchParams.get(STATE_PARAM) === encodedShareState) {
+      return
+    }
+
+    url.searchParams.set(STATE_PARAM, encodedShareState)
     window.history.replaceState({}, '', url)
-  }, [state])
+  }, [encodedShareState])
 
   useEffect(() => {
     if (!copied) {
