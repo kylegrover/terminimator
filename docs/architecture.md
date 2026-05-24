@@ -40,7 +40,7 @@ Before introducing a freer authoring surface or a node graph, the project needs 
 
 ### JavaScript with rails
 
-User-authored code should be JavaScript, but not freeform terminal scripting. The author writes a strict frame-script that calls helpers like `title(...)`, `describe(...)`, and `print(...)`.
+User-authored code should be JavaScript, but not freeform terminal scripting. The author writes a strict frame-script that calls a small set of row-building helpers such as `print(...)`, `bar(...)`, `repeat(...)`, and `counter()`.
 
 That keeps the authoring experience flexible while preserving a shared intermediate representation for preview and export.
 
@@ -59,9 +59,6 @@ That IR is the real product core.
 The browser editor should ask the user to write source shaped roughly like this:
 
 ```ts
-title('compile-progress')
-describe('Animated dots plus a counter bar on a second line.')
-
 print(
   'loading' +
     repeat('.', { count: 3, from: 'frame' }) +

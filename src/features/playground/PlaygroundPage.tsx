@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react'
 import { generateCode } from '../../lib/exporters/generateCode'
 import { renderScene } from '../../lib/preview/renderScene'
 import type { ExportTarget, PlaybackState, PlaygroundState } from '../../lib/schema/frame'
-import { compileEffectSource, dslReference, summarizeEffect } from '../../lib/runtime/effectDsl'
+import {
+  compileEffectSource,
+  dslReference,
+  stripLegacyMetadataSource,
+  summarizeEffect,
+} from '../../lib/runtime/effectDsl'
 import { decodeState, encodeState } from '../../lib/utils/urlState'
 import {
   defaultTemplate,
@@ -65,7 +70,10 @@ function loadInitialState() {
     const parsed = decodeState<Partial<PlaygroundState>>(encoded)
 
     return {
-      source: typeof parsed.source === 'string' ? parsed.source : fallback.source,
+      source:
+        typeof parsed.source === 'string'
+          ? stripLegacyMetadataSource(parsed.source)
+          : fallback.source,
       activeTemplateId:
         typeof parsed.activeTemplateId === 'string'
           ? parsed.activeTemplateId
@@ -106,7 +114,14 @@ export function PlaygroundPage() {
   const [copied, setCopied] = useState<'code' | 'link' | null>(null)
 
   const compileResult = compileEffectSource(state.source)
-  const effect = compileResult.ok ? compileResult.effect : null
+  const currentTemplate = effectTemplates.find((template) => template.id === state.activeTemplateId)
+  const effect = compileResult.ok
+    ? {
+        ...compileResult.effect,
+        name: currentTemplate?.id ?? compileResult.effect.name,
+        description: currentTemplate?.description ?? compileResult.effect.description,
+      }
+    : null
   const compileError = compileResult.ok ? null : compileResult.error
   const playbackActive =
     isPlaying && Boolean(effect) && (state.playback.loop || state.playback.current < state.playback.total)
@@ -117,7 +132,6 @@ export function PlaygroundPage() {
     ? generateCode(effect, state.playback, state.exportTarget)
     : '// fix the editor source before export is available'
   const currentShareUrl = shareUrl(encodeState(state))
-  const currentTemplate = effectTemplates.find((template) => template.id === state.activeTemplateId)
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -359,7 +373,6 @@ export function PlaygroundPage() {
           {effect ? (
             <div className="summary-card">
               <p className="section-kicker">Compiled effect</p>
-              <p className="section-note">{effect.description ?? 'No description set in the source.'}</p>
               <pre>{summarizeEffect(effect)}</pre>
             </div>
           ) : (

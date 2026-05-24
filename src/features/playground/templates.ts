@@ -31,10 +31,7 @@ export const effectTemplates: EffectTemplate[] = [
       'Exercises multiline scenes immediately.',
       'Uses both frame-driven motion and progress-driven motion.',
     ],
-    source: `title('compile-progress')
-describe('Animated dots plus a counter bar on a second line.')
-
-print('loading' + repeat('.', { count: 3, from: 'frame' }) + '  ' + bar({ width: 24, filled: '=', empty: '.', showCounter: false }) + ' ' + counter())
+    source: `print('loading' + repeat('.', { count: 3, from: 'frame' }) + '  ' + bar({ width: 24, filled: '=', empty: '.', showCounter: false }) + ' ' + counter())
 print('phase: compiling assets')`,
   },
   {
@@ -52,10 +49,7 @@ print('phase: compiling assets')`,
       'Smallest viable loader primitive set.',
       'Good baseline for testing pacing decisions.',
     ],
-    source: `title('quiet-dots')
-describe('Minimal loader made from text plus one repeat primitive.')
-
-print('thinking' + repeat('.', { count: 3, from: 'frame' }))`,
+    source: `print('thinking' + repeat('.', { count: 3, from: 'frame' }))`,
   },
   {
     id: 'download-meter',
@@ -72,10 +66,7 @@ print('thinking' + repeat('.', { count: 3, from: 'frame' }))`,
       'Tests export fidelity for different bar glyphs.',
       'Keeps the scene single-line while still using the same IR.',
     ],
-    source: `title('download-meter')
-describe('Bar-first progress output with a louder fill style.')
-
-print('download ' + bar({ width: 30, filled: '#', empty: '-', showCounter: true }))`,
+    source: `print('download ' + bar({ width: 30, filled: '#', empty: '-', showCounter: true }))`,
   },
   {
     id: 'two-line-status',
@@ -92,10 +83,7 @@ print('download ' + bar({ width: 30, filled: '#', empty: '-', showCounter: true 
       'Validates that the editor does not assume one line forever.',
       'Good template for future status dashboards.',
     ],
-    source: `title('two-line-status')
-describe('Stacked status text with a simple bar below it.')
-
-print('indexing project files')
+    source: `print('indexing project files')
 print(\`progress \${bar({ width: 20, filled: '=', empty: '.', showCounter: false })} \${step}/\${steps}\`)`,
   },
 ]

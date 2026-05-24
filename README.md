@@ -13,7 +13,7 @@ The product direction is "Terminal Shadertoy": immediate feedback, a strong auth
 - No node graph until the underlying frame primitives are proven.
 - First export targets are JS, Python, and Rust.
 - Authoring is now code-first instead of form-first.
-- The current authoring surface is strict JS in a frame-script style: `title(...)`, `describe(...)`, and `print(...)` build the terminal IR.
+- The current authoring surface is strict JS in a frame-script style: `print(...)` builds rows while helpers like `bar(...)`, `repeat(...)`, and `counter()` fill in dynamic pieces.
 - Sharing is URL-encoded state.
 - Persistence is the generated standalone code.
 
@@ -106,3 +106,5 @@ npm run lint
 5. Add Go after the first exporter trio feels stable.
 
 See `docs/architecture.md` for the full technical plan.
+See `docs/frame-script.md` for the user-facing helper guide.
+

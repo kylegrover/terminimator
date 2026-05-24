@@ -37,6 +37,7 @@ type InlineToken = {
 
 const INLINE_TOKEN_PREFIX = '__terminimator_inline_'
 const INLINE_TOKEN_PATTERN = /__terminimator_inline_\d+__/g
+const LEGACY_METADATA_LINE_PATTERN = /^\s*(title|describe)\(.*\)\s*;?\s*$/
 
 export type CompileResult =
   | {
@@ -50,16 +51,12 @@ export type CompileResult =
 
 export const dslReference = [
   {
-    signature: "title('two-line-status')",
-    detail: 'Set the terminal label without wrapping everything in a returned object.',
-  },
-  {
     signature: "print('indexing project files')",
     detail: 'Each print(...) call becomes one terminal row in the preview and exports.',
   },
   {
-    signature: "print(`progress ${bar({ width: 20, showCounter: false })} ${step}/${steps}`)",
-    detail: 'bar(), step, steps, and frame can be embedded directly inside strings or template literals.',
+    signature: "print('download ' + bar({ width: 30, filled: '#', empty: '-' }))",
+    detail: 'bar(...) builds the visual meter and can be dropped straight into a printed line.',
   },
   {
     signature: "repeat('.', { count: 3, from: 'frame' })",
@@ -68,6 +65,10 @@ export const dslReference = [
   {
     signature: 'counter()',
     detail: 'Use counter() when you want current/total without manually building the string.',
+  },
+  {
+    signature: '`progress ${step}/${steps}`',
+    detail: 'frame, step, and steps are live values you can embed directly in template literals.',
   },
 ] as const
 
@@ -149,8 +150,6 @@ function isInlineToken(value: unknown): value is InlineToken {
 
 function createScriptBuilder() {
   const state: {
-    name?: string
-    description?: string
     lines: FrameNode[][]
   } = {
     lines: [],
@@ -238,12 +237,6 @@ function createScriptBuilder() {
   }
 
   return {
-    title(value: unknown) {
-      state.name = String(value ?? '').trim()
-    },
-    describe(value: unknown) {
-      state.description = String(value ?? '').trim()
-    },
     print(...parts: unknown[]) {
       state.lines.push(createLine(...parts))
     },
@@ -271,7 +264,7 @@ function createScriptBuilder() {
     step: current,
     steps: total,
     hasStructuredOutput() {
-      return state.lines.length > 0 || state.name !== undefined || state.description !== undefined
+      return state.lines.length > 0
     },
     toEffect() {
       if (state.lines.length === 0) {
@@ -281,8 +274,6 @@ function createScriptBuilder() {
       }
 
       return normalizeEffect({
-        name: state.name,
-        description: state.description,
         lines: state.lines,
       })
     },
@@ -376,7 +367,7 @@ function normalizeEffect(rawEffect: unknown): EffectDefinition {
   const name =
     typeof effect.name === 'string' && effect.name.trim().length > 0
       ? effect.name.trim()
-      : 'untitled-effect'
+      : 'frame-script'
 
   const description =
     typeof effect.description === 'string' && effect.description.trim().length > 0
@@ -416,6 +407,21 @@ export function summarizeEffect(effect: EffectDefinition) {
     .join('\n')
 }
 
+export function stripLegacyMetadataSource(source: string) {
+  if (!source.includes('title(') && !source.includes('describe(')) {
+    return source
+  }
+
+  const originalLines = source.split(/\r?\n/)
+  const filteredLines = originalLines.filter((line) => !LEGACY_METADATA_LINE_PATTERN.test(line))
+
+  if (filteredLines.length === originalLines.length) {
+    return source
+  }
+
+  return filteredLines.join('\n').replace(/^\s*\n+/, '').replace(/\n{3,}/g, '\n\n')
+}
+
 export function compileEffectSource(source: string): CompileResult {
   try {
     const builder = createScriptBuilder()
@@ -426,8 +432,6 @@ export function compileEffectSource(source: string): CompileResult {
       'repeat',
       'progressBar',
       'bar',
-      'title',
-      'describe',
       'print',
       'frame',
       'current',
@@ -445,8 +449,6 @@ export function compileEffectSource(source: string): CompileResult {
       builder.repeat,
       builder.progressBar,
       builder.bar,
-      builder.title,
-      builder.describe,
       builder.print,
       builder.frame,
       builder.current,
@@ -459,7 +461,7 @@ export function compileEffectSource(source: string): CompileResult {
     if (rawEffect !== undefined) {
       if (builder.hasStructuredOutput()) {
         throw new Error(
-          'Choose one source style: either use print()/title()/describe() or return defineEffect({ ... }) for the legacy object form.',
+          'Choose one source style: either use print(...) lines or return defineEffect({ ... }) for the legacy object form.',
         )
       }
 
