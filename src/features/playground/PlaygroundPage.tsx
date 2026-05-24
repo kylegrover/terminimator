@@ -48,7 +48,7 @@ function normalizePlayback(rawPlayback: Partial<PlaybackState> | undefined, fall
     current: clampInteger(Number(rawPlayback?.current ?? fallback.current), 0, total),
     total,
     fps: clampInteger(Number(rawPlayback?.fps ?? fallback.fps), 1, MAX_FPS),
-    loop: typeof rawPlayback?.loop === 'boolean' ? rawPlayback.loop : fallback.loop,
+    loop: typeof rawPlayback?.loop === 'boolean' ? rawPlayback.loop : true,
   }
 }
 
@@ -110,7 +110,7 @@ async function copyText(value: string) {
 
 export function PlaygroundPage() {
   const [state, setState] = useState(loadInitialState)
-  const [isPlaying, setIsPlaying] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(true)
   const [copied, setCopied] = useState<'code' | 'link' | null>(null)
 
   const compileResult = compileEffectSource(state.source)
@@ -191,7 +191,6 @@ export function PlaygroundPage() {
 
   function loadTemplate(templateId: string) {
     const template = getTemplateById(templateId)
-    setIsPlaying(false)
     setState((current) => ({
       ...current,
       source: template.source,
@@ -201,7 +200,6 @@ export function PlaygroundPage() {
   }
 
   function updateSource(value: string) {
-    setIsPlaying(false)
     setState((current) => ({
       ...current,
       source: value,
@@ -272,7 +270,6 @@ export function PlaygroundPage() {
   }
 
   function resetPlayback() {
-    setIsPlaying(false)
     setState((current) => ({
       ...current,
       playback: {
@@ -311,8 +308,8 @@ export function PlaygroundPage() {
               <p className="section-kicker">Frame script</p>
               <h2>Write the lines</h2>
               <p className="section-note">
-                One print(...) call equals one terminal row. bar(), repeat(), frame, step,
-                and steps can sit inline with normal JS strings.
+                One print(...) call equals one terminal row. Layout helpers, motion helpers,
+                and live values can all sit inline with normal JS strings.
               </p>
             </div>
 
@@ -384,11 +381,12 @@ export function PlaygroundPage() {
 
           <div className="details-grid">
             <div className="summary-card">
-              <p className="section-kicker">Helper surface</p>
-              <div className="helper-list">
+              <p className="section-kicker">Reference</p>
+              <div className="helper-docs">
                 {dslReference.map((entry) => (
-                  <article className="helper-row" key={entry.signature}>
-                    <h3>{entry.signature}</h3>
+                  <article className="helper-doc-row" key={`${entry.name}-${entry.signature}`}>
+                    <p className="helper-doc-name">{entry.name}</p>
+                    <pre className="helper-doc-signature">{entry.signature}</pre>
                     <p>{entry.detail}</p>
                   </article>
                 ))}

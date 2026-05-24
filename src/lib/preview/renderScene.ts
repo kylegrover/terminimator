@@ -1,7 +1,9 @@
 import type {
+  AlignMode,
   CombineMarksNode,
   EffectDefinition,
   FrameNode,
+  GateNode,
   MarqueeNode,
   PlaybackState,
   SpinnerNode,
@@ -32,6 +34,60 @@ function readValue(source: ValueSource, playback: PlaybackState) {
     case 'total':
       return playback.total
   }
+}
+
+function renderNodes(nodes: FrameNode[], playback: PlaybackState): string {
+  return nodes.map((node) => renderNode(node, playback)).join('')
+}
+
+function alignText(value: string, width: number, align: AlignMode, fill: string) {
+  const safeWidth = clamp(width, 1, 80)
+  const visibleLength = Array.from(value).length
+
+  if (visibleLength >= safeWidth) {
+    return value
+  }
+
+  const fillGlyph = Array.from(fill)[0] ?? ' '
+  const gap = safeWidth - visibleLength
+
+  if (align === 'right') {
+    return fillGlyph.repeat(gap) + value
+  }
+
+  if (align === 'center') {
+    const left = Math.floor(gap / 2)
+    const right = gap - left
+    return fillGlyph.repeat(left) + value + fillGlyph.repeat(right)
+  }
+
+  return value + fillGlyph.repeat(gap)
+}
+
+function passesGate(node: GateNode, playback: PlaybackState) {
+  const value = readValue(node.from, playback)
+
+  if (node.eq !== undefined && value !== node.eq) {
+    return false
+  }
+
+  if (node.gt !== undefined && value <= node.gt) {
+    return false
+  }
+
+  if (node.gte !== undefined && value < node.gte) {
+    return false
+  }
+
+  if (node.lt !== undefined && value >= node.lt) {
+    return false
+  }
+
+  if (node.lte !== undefined && value > node.lte) {
+    return false
+  }
+
+  return true
 }
 
 function renderSpinner(node: SpinnerNode, frame: number) {
@@ -82,7 +138,7 @@ function renderCombineMarks(node: CombineMarksNode, frame: number) {
   return output
 }
 
-export function renderNode(node: FrameNode, playback: PlaybackState) {
+export function renderNode(node: FrameNode, playback: PlaybackState): string {
   switch (node.type) {
     case 'text':
       return node.value
@@ -106,6 +162,10 @@ export function renderNode(node: FrameNode, playback: PlaybackState) {
       return renderMarquee(node, playback.frame)
     case 'combineMarks':
       return renderCombineMarks(node, playback.frame)
+    case 'pad':
+      return alignText(renderNodes(node.parts, playback), node.width, node.align, node.fill)
+    case 'gate':
+      return passesGate(node, playback) ? renderNodes(node.parts, playback) : ''
   }
 }
 

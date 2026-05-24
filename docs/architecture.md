@@ -82,6 +82,8 @@ The script surface should expose deterministic runtime values and helpers such a
 - `spinner(...)`
 - `marquee(...)`
 - `combine(...)`
+- `pad(...)`
+- `gate(...)`
 - `print(...)`
 
 Those helpers should still compile to pure structured nodes, not terminal side effects.
@@ -96,16 +98,17 @@ Potential early primitives:
 - `spinner`
 - `marquee`
 - `combine`
+- `pad`
+- `gate`
 - `counter`
 
 These are the first primitives already represented in the repo and available in the editor helper surface.
 
 Likely next primitives once the first slice settles:
 
-- `pad`
-- `align`
 - `style`
-- `gate`
+- `trim`
+- `jitter`
 - effect-specific helpers once the IR can represent them cleanly
 
 ### Shared scene shape

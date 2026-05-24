@@ -6,6 +6,10 @@ export type PrimitiveType =
   | 'spinner'
   | 'marquee'
   | 'combineMarks'
+  | 'pad'
+  | 'gate'
+
+export type AlignMode = 'left' | 'right' | 'center'
 
 export type ValueSource = 'frame' | 'current' | 'total'
 
@@ -56,6 +60,25 @@ export type CombineMarksNode = {
   from: RepeatSource
 }
 
+export type PadNode = {
+  type: 'pad'
+  parts: FrameNode[]
+  width: number
+  align: AlignMode
+  fill: string
+}
+
+export type GateNode = {
+  type: 'gate'
+  parts: FrameNode[]
+  from: ValueSource
+  gt?: number
+  gte?: number
+  lt?: number
+  lte?: number
+  eq?: number
+}
+
 export type FrameNode =
   | TextNode
   | ValueNode
@@ -64,6 +87,8 @@ export type FrameNode =
   | SpinnerNode
   | MarqueeNode
   | CombineMarksNode
+  | PadNode
+  | GateNode
 
 export type FrameScene = {
   lines: FrameNode[][]

@@ -280,7 +280,6 @@ code {
 .hero-stats,
 .control-grid,
 .template-list,
-.helper-list,
 .idea-list,
 .details-grid {
   display: grid;
@@ -299,7 +298,6 @@ code {
 .template-card,
 .summary-card,
 .error-card,
-.helper-row,
 .idea-card {
   position: relative;
   z-index: 1;
@@ -311,8 +309,7 @@ code {
 .template-card,
 .summary-card,
 .error-card,
-.idea-card,
-.helper-row {
+.idea-card {
   padding: 16px 18px;
 }
 
@@ -432,13 +429,44 @@ code {
   background: rgba(255, 244, 243, 0.92);
 }
 
-.helper-list {
+.helper-docs {
   margin-top: 12px;
+  border: 1px solid rgba(83, 67, 35, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+  overflow: hidden;
 }
 
-.helper-row {
+.helper-doc-row {
   display: grid;
   gap: 8px;
+  padding: 14px 16px;
+}
+
+.helper-doc-row + .helper-doc-row {
+  border-top: 1px solid rgba(83, 67, 35, 0.1);
+}
+
+.helper-doc-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+.helper-doc-signature {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(20, 18, 14, 0.06);
+  border: 1px solid rgba(83, 67, 35, 0.08);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink);
 }
 
 .terminal-window {

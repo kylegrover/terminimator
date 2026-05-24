@@ -34,6 +34,34 @@ Options:
 print('download ' + bar({ width: 30, filled: '#', empty: '-', showCounter: true }))
 ```
 
+### `pad(value, width, options?)`
+
+Pads a fragment out to a fixed width.
+
+Options:
+
+- `align`: `'left'`, `'right'`, or `'center'`. Default `'left'`.
+- `fill`: character used for the padding. Default `' '`.
+
+```js
+print(pad('queue depth', 20, { fill: '.' }) + counter())
+print(pad(step + '/' + steps, 12, { align: 'right' }))
+```
+
+### `gate(condition, ...parts)`
+
+Shows a fragment only when the current playback value passes the condition.
+
+Condition fields:
+
+- `from`: `'current'`, `'frame'`, or `'total'`. Default `'current'`.
+- `gt`, `gte`, `lt`, `lte`, `eq`: numeric checks applied to the chosen source.
+
+```js
+print('phase: ' + gate({ from: 'current', lt: 3 }, 'validating manifests'))
+print('phase: ' + gate({ from: 'current', gte: 6 }, 'verifying cache propagation'))
+```
+
 ### `spinner(...frames)`
 
 Swaps between explicit frame strings using the current playback frame.
@@ -133,11 +161,25 @@ print(spinner('|', '/', '-', '\\') + ' syncing package graph')
 print('step ' + counter())
 ```
 
+Padded ledger:
+
+```js
+print(pad('queue depth', 20, { fill: '.' }) + counter())
+print(pad('region us-east-1', 20) + pad(step + '/' + steps, 12, { align: 'right' }))
+```
+
 Two-line status:
 
 ```js
 print('indexing project files')
 print(`progress ${bar({ width: 20, showCounter: false })} ${step}/${steps}`)
+```
+
+Phase gates:
+
+```js
+print('deploy ' + bar({ width: 18, showCounter: false }) + ' ' + counter())
+print('phase: ' + gate({ from: 'current', lt: 3 }, 'validating manifests') + gate({ from: 'current', gte: 3, lt: 6 }, 'uploading bundles') + gate({ from: 'current', gte: 6 }, 'verifying cache propagation'))
 ```
 
 Marquee logline:
@@ -164,6 +206,6 @@ print('carrier ' + repeat('~', { count: 6, from: 'frame' }))
 
 These are good candidates to consider once you have time to test the current helper set.
 
-- `pad` / `align`: fixed-width columns and cleaner multi-panel terminal layouts.
 - `style`: ANSI color and emphasis spans once motion feels stable.
-- `gate`: conditional fragments or whole lines that appear only at certain progress thresholds.
+- `trim`: width-aware clipping and ellipsis helpers.
+- `jitter`: deterministic pseudo-random motion and text instability.

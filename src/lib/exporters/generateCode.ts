@@ -1,4 +1,5 @@
 import type {
+  AlignMode,
   EffectDefinition,
   ExportTarget,
   FrameNode,
@@ -27,6 +28,21 @@ function rustStringArray(values: string[]) {
   return `vec![${values.map((value) => `String::from(${rustString(value)})`).join(', ')}]`
 }
 
+function rustOptionalNumber(value: number | undefined) {
+  return value === undefined ? 'None' : `Some(${value}usize)`
+}
+
+function rustAlignMode(align: AlignMode) {
+  switch (align) {
+    case 'right':
+      return 'AlignMode::Right'
+    case 'center':
+      return 'AlignMode::Center'
+    default:
+      return 'AlignMode::Left'
+  }
+}
+
 function rustValueSource(source: ValueSource) {
   switch (source) {
     case 'frame':
@@ -38,7 +54,7 @@ function rustValueSource(source: ValueSource) {
   }
 }
 
-function renderRustNode(node: FrameNode) {
+function renderRustNode(node: FrameNode): string {
   switch (node.type) {
     case 'text':
       return `Node::Text(String::from(${rustString(node.value)}))`
@@ -54,6 +70,10 @@ function renderRustNode(node: FrameNode) {
       return `Node::Marquee { value: String::from(${rustString(node.value)}), width: ${node.width}, gap: String::from(${rustString(node.gap)}) }`
     case 'combineMarks':
       return `Node::CombineMarks { value: String::from(${rustString(node.value)}), marks: ${rustStringArray(node.marks)}, depth: ${node.depth}, from_frame: ${node.from === 'frame'} }`
+    case 'pad':
+      return `Node::Pad { parts: vec![${node.parts.map(renderRustNode).join(', ')}], width: ${node.width}, align: ${rustAlignMode(node.align)}, fill: String::from(${rustString(node.fill)}) }`
+    case 'gate':
+      return `Node::Gate { parts: vec![${node.parts.map(renderRustNode).join(', ')}], from: ${rustValueSource(node.from)}, gt: ${rustOptionalNumber(node.gt)}, gte: ${rustOptionalNumber(node.gte)}, lt: ${rustOptionalNumber(node.lt)}, lte: ${rustOptionalNumber(node.lte)}, eq: ${rustOptionalNumber(node.eq)} }`
   }
 }
 
@@ -63,6 +83,64 @@ function generateJsCode(effect: EffectDefinition, playback: PlaybackState) {
 const fps = ${playback.fps}
 const loop = ${playback.loop}
 const delay = Math.max(1, Math.round(1000 / Math.max(fps, 1)))
+
+function valueFromSource(source, ctx) {
+  return ctx[source]
+}
+
+function renderNodes(nodes, ctx) {
+  return nodes.map((node) => renderNode(node, ctx)).join('')
+}
+
+function alignText(value, width, align, fill) {
+  const safeWidth = Math.min(Math.max(width, 1), 80)
+  const visibleLength = Array.from(value).length
+
+  if (visibleLength >= safeWidth) {
+    return value
+  }
+
+  const fillGlyph = Array.from(fill || ' ')[0] ?? ' '
+  const gap = safeWidth - visibleLength
+
+  if (align === 'right') {
+    return fillGlyph.repeat(gap) + value
+  }
+
+  if (align === 'center') {
+    const left = Math.floor(gap / 2)
+    const right = gap - left
+    return fillGlyph.repeat(left) + value + fillGlyph.repeat(right)
+  }
+
+  return value + fillGlyph.repeat(gap)
+}
+
+function passesGate(node, ctx) {
+  const value = valueFromSource(node.from, ctx)
+
+  if (node.eq !== undefined && value !== node.eq) {
+    return false
+  }
+
+  if (node.gt !== undefined && value <= node.gt) {
+    return false
+  }
+
+  if (node.gte !== undefined && value < node.gte) {
+    return false
+  }
+
+  if (node.lt !== undefined && value >= node.lt) {
+    return false
+  }
+
+  if (node.lte !== undefined && value > node.lte) {
+    return false
+  }
+
+  return true
+}
 
 function renderSpinner(node, ctx) {
   const frames = node.frames.length ? node.frames : ['|', '/', '-', '\\\\']
@@ -136,6 +214,10 @@ function renderNode(node, ctx) {
       return renderMarquee(node, ctx)
     case 'combineMarks':
       return renderCombineMarks(node, ctx)
+    case 'pad':
+      return alignText(renderNodes(node.parts, ctx), node.width, node.align, node.fill)
+    case 'gate':
+      return passesGate(node, ctx) ? renderNodes(node.parts, ctx) : ''
     default:
       return ''
   }
@@ -143,7 +225,7 @@ function renderNode(node, ctx) {
 
 function renderEffect(ctx) {
   return effect.lines
-    .map((line) => line.map((node) => renderNode(node, ctx)).join(''))
+    .map((line) => renderNodes(line, ctx))
     .join('\n')
 }
 
@@ -176,6 +258,51 @@ FPS = ${playback.fps}
 LOOP = ${playback.loop}
 DELAY = 1 / max(FPS, 1)
 DEFAULT_COMBINING_MARKS = ["\u0307", "\u0323", "\u0334"]
+
+
+def value_from_source(source, ctx):
+  return ctx[source]
+
+
+def render_nodes(nodes, ctx):
+  return "".join(render_node(node, ctx) for node in nodes)
+
+
+def align_text(value, width, align, fill):
+  safe_width = max(1, min(int(width), 80))
+  visible_length = len(value)
+  if visible_length >= safe_width:
+    return value
+
+  fill_glyph = (fill or " ")[0]
+  gap = safe_width - visible_length
+
+  if align == "right":
+    return fill_glyph * gap + value
+
+  if align == "center":
+    left = gap // 2
+    right = gap - left
+    return fill_glyph * left + value + fill_glyph * right
+
+  return value + fill_glyph * gap
+
+
+def passes_gate(node, ctx):
+  value = value_from_source(node["from"], ctx)
+
+  if node.get("eq") is not None and value != node["eq"]:
+    return False
+  if node.get("gt") is not None and value <= node["gt"]:
+    return False
+  if node.get("gte") is not None and value < node["gte"]:
+    return False
+  if node.get("lt") is not None and value >= node["lt"]:
+    return False
+  if node.get("lte") is not None and value > node["lte"]:
+    return False
+
+  return True
 
 
 def render_spinner(node, ctx):
@@ -230,6 +357,12 @@ def render_node(node, ctx):
   if node["type"] == "combineMarks":
     return render_combine_marks(node, ctx)
 
+  if node["type"] == "pad":
+    return align_text(render_nodes(node["parts"], ctx), node["width"], node["align"], node["fill"])
+
+  if node["type"] == "gate":
+    return render_nodes(node["parts"], ctx) if passes_gate(node, ctx) else ""
+
     safe_total = max(ctx["total"], 1)
     ratio = max(0.0, min(ctx["current"] / safe_total, 1.0))
     filled_count = round(ratio * node["width"])
@@ -240,7 +373,7 @@ def render_node(node, ctx):
 
 def render_effect(ctx):
     return "\n".join(
-        "".join(render_node(node, ctx) for node in line)
+    render_nodes(line, ctx)
         for line in EFFECT["lines"]
     )
 
@@ -279,6 +412,13 @@ enum ValueSource {
 }
 
 #[derive(Clone)]
+enum AlignMode {
+  Left,
+  Right,
+  Center,
+}
+
+#[derive(Clone)]
 enum Node {
     Text(String),
   Value(ValueSource),
@@ -287,6 +427,97 @@ enum Node {
   Spinner(Vec<String>),
   Marquee { value: String, width: usize, gap: String },
   CombineMarks { value: String, marks: Vec<String>, depth: usize, from_frame: bool },
+  Pad { parts: Vec<Node>, width: usize, align: AlignMode, fill: String },
+  Gate { parts: Vec<Node>, from: ValueSource, gt: Option<usize>, gte: Option<usize>, lt: Option<usize>, lte: Option<usize>, eq: Option<usize> },
+}
+
+fn value_from_source(source: &ValueSource, frame: usize, current: usize, total: usize) -> usize {
+  match source {
+    ValueSource::Frame => frame,
+    ValueSource::Current => current,
+    ValueSource::Total => total,
+  }
+}
+
+fn render_nodes(nodes: &[Node], frame: usize, current: usize, total: usize) -> String {
+  nodes
+    .iter()
+    .map(|node| render_node(node, frame, current, total))
+    .collect::<Vec<_>>()
+    .join("")
+}
+
+fn align_text(value: &str, width: usize, align: &AlignMode, fill: &str) -> String {
+  let safe_width = width.clamp(1, 80);
+  let visible_length = value.chars().count();
+
+  if visible_length >= safe_width {
+    return value.to_string();
+  }
+
+  let fill_glyph = fill.chars().next().unwrap_or(' ');
+  let gap = safe_width - visible_length;
+
+  match align {
+    AlignMode::Right => format!("{}{}", fill_glyph.to_string().repeat(gap), value),
+    AlignMode::Center => {
+      let left = gap / 2;
+      let right = gap - left;
+      format!(
+        "{}{}{}",
+        fill_glyph.to_string().repeat(left),
+        value,
+        fill_glyph.to_string().repeat(right)
+      )
+    }
+    AlignMode::Left => format!("{}{}", value, fill_glyph.to_string().repeat(gap)),
+  }
+}
+
+fn passes_gate(
+  from: &ValueSource,
+  gt: &Option<usize>,
+  gte: &Option<usize>,
+  lt: &Option<usize>,
+  lte: &Option<usize>,
+  eq: &Option<usize>,
+  frame: usize,
+  current: usize,
+  total: usize,
+) -> bool {
+  let value = value_from_source(from, frame, current, total);
+
+  if let Some(eq_value) = eq {
+    if value != *eq_value {
+      return false;
+    }
+  }
+
+  if let Some(gt_value) = gt {
+    if value <= *gt_value {
+      return false;
+    }
+  }
+
+  if let Some(gte_value) = gte {
+    if value < *gte_value {
+      return false;
+    }
+  }
+
+  if let Some(lt_value) = lt {
+    if value >= *lt_value {
+      return false;
+    }
+  }
+
+  if let Some(lte_value) = lte {
+    if value > *lte_value {
+      return false;
+    }
+  }
+
+  true
 }
 
 fn render_spinner(frames: &[String], frame: usize) -> String {
@@ -382,18 +613,23 @@ fn render_node(node: &Node, frame: usize, current: usize, total: usize) -> Strin
           Node::CombineMarks { value, marks, depth, from_frame } => {
             render_combine_marks(value, marks, *depth, *from_frame, frame)
           }
+        Node::Pad { parts, width, align, fill } => {
+          align_text(&render_nodes(parts, frame, current, total), *width, align, fill)
+        }
+        Node::Gate { parts, from, gt, gte, lt, lte, eq } => {
+          if passes_gate(from, gt, gte, lt, lte, eq, frame, current, total) {
+            render_nodes(parts, frame, current, total)
+          } else {
+            String::new()
+          }
+        }
     }
 }
 
 fn render_effect(effect: &[Vec<Node>], frame: usize, current: usize, total: usize) -> String {
     effect
         .iter()
-        .map(|line| {
-            line.iter()
-                .map(|node| render_node(node, frame, current, total))
-                .collect::<Vec<_>>()
-                .join("")
-        })
+    .map(|line| render_nodes(line, frame, current, total))
         .collect::<Vec<_>>()
         .join("\n")
 }

@@ -53,6 +53,25 @@ print('phase: compiling assets')`,
 print('step ' + counter())`,
   },
   {
+    id: 'padded-ledger',
+    name: 'Padded Ledger',
+    description: 'Fixed-width columns built from pad(...) so labels and counters stay aligned.',
+    playback: {
+      frame: 2,
+      current: 14,
+      total: 32,
+      fps: 4,
+      loop: true,
+    },
+    notes: [
+      'First pass at layout helpers without introducing a full grid system.',
+      'Useful for status boards, counters, and terminal dashboards.',
+    ],
+    source: `print(pad('queue depth', 20, { fill: '.' }) + counter())
+print(pad('edge cache', 20, { fill: '.' }) + 'warm')
+print(pad('region us-east-1', 20) + pad(step + '/' + steps, 12, { align: 'right' }))`,
+  },
+  {
     id: 'quiet-dots',
     name: 'Quiet Dots',
     description: 'A tiny single-line loader for scripts that want almost no visual noise.',
@@ -78,7 +97,7 @@ print('step ' + counter())`,
       current: 17,
       total: 40,
       fps: 4,
-      loop: false,
+      loop: true,
     },
     notes: [
       'Tests export fidelity for different bar glyphs.',
@@ -123,6 +142,24 @@ print('rollout ' + counter())`,
 print(\`progress \${bar({ width: 20, filled: '=', empty: '.', showCounter: false })} \${step}/\${steps}\`)`,
   },
   {
+    id: 'phase-gates',
+    name: 'Phase Gates',
+    description: 'Conditional fragments that switch copy as progress crosses thresholds.',
+    playback: {
+      frame: 3,
+      current: 5,
+      total: 9,
+      fps: 5,
+      loop: true,
+    },
+    notes: [
+      'Shows how gate(...) can swap status copy without branching the whole script.',
+      'Good test for threshold-driven terminal copy changes.',
+    ],
+    source: `print('deploy ' + bar({ width: 18, showCounter: false }) + ' ' + counter())
+print('phase: ' + gate({ from: 'current', lt: 3 }, 'validating manifests') + gate({ from: 'current', gte: 3, lt: 6 }, 'uploading bundles') + gate({ from: 'current', gte: 6 }, 'verifying cache propagation'))`,
+  },
+  {
     id: 'void-hum',
     name: 'Void Hum',
     description: 'Combining marks layered over text to push into stranger terminal territory.',
@@ -144,19 +181,19 @@ print('carrier ' + repeat('~', { count: 6, from: 'frame' }))`,
 
 export const futureIdeas: FutureIdea[] = [
   {
-    name: 'Pad Grid',
-    need: 'Padding, alignment, and fixed-width column helpers.',
-    why: 'Status boards and multi-column terminal layouts need structure, not just motion.',
-  },
-  {
     name: 'ANSI Paint',
     need: 'Color and emphasis spans that export cleanly across targets.',
-    why: 'Once motion feels solid, style is the next obvious layer people will reach for.',
+    why: 'Once layout and motion feel solid, visual styling is the next obvious layer people will reach for.',
   },
   {
-    name: 'Phase Gates',
-    need: 'Conditional fragments and line toggles based on frame or progress.',
-    why: 'Many real terminal effects change layout or copy as work crosses thresholds.',
+    name: 'Width Trim',
+    need: 'Clip, truncate, and ellipsis helpers that respect fixed terminal widths.',
+    why: 'Marquee handles scrolling, but real dashboards also need deliberate clipping.',
+  },
+  {
+    name: 'Seeded Jitter',
+    need: 'Deterministic pseudo-random offsets and scrambles keyed by frame or step.',
+    why: 'Glitchier motion and unstable text effects will need controlled randomness, not true chaos.',
   },
 ]
 

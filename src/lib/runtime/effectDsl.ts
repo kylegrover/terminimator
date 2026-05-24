@@ -1,8 +1,11 @@
 import type {
+  AlignMode,
   CombineMarksNode,
   EffectDefinition,
   FrameNode,
+  GateNode,
   MarqueeNode,
+  PadNode,
   PrimitiveType,
   ProgressBarNode,
   RepeatNode,
@@ -36,6 +39,20 @@ type DslCombineOptions = {
   from?: RepeatSource
 }
 
+type DslPadOptions = {
+  align?: AlignMode
+  fill?: string
+}
+
+type DslGateCondition = {
+  from?: ValueSource
+  gt?: number
+  gte?: number
+  lt?: number
+  lte?: number
+  eq?: number
+}
+
 type DslEffectDefinition = {
   name?: unknown
   description?: unknown
@@ -67,34 +84,52 @@ export type CompileResult =
 
 export const dslReference = [
   {
+    name: 'print',
     signature: "print('indexing project files')",
     detail: 'Each print(...) call becomes one terminal row in the preview and exports.',
   },
   {
+    name: 'pad',
+    signature: "print(pad(counter(), 12, { align: 'right' }))",
+    detail: 'pad(...) gives dynamic content a fixed width so columns and labels line up cleanly.',
+  },
+  {
+    name: 'gate',
+    signature: "print('phase: ' + gate({ from: 'current', gte: 6 }, 'verifying cache'))",
+    detail: 'gate(...) shows a fragment only when the playback value matches the condition.',
+  },
+  {
+    name: 'spinner',
     signature: "print(spinner('|', '/', '-', '\\\\') + ' syncing package graph')",
     detail: 'spinner(...) swaps between explicit frame strings based on the playback frame.',
   },
   {
+    name: 'marquee',
     signature: "print(marquee('deploying edge regions', { width: 28, gap: '   ' }))",
     detail: 'marquee(...) scrolls a longer phrase through a fixed-width window.',
   },
   {
+    name: 'combine',
     signature: "print(combine('signal degraded', { depth: 2 }))",
     detail: 'combine(...) layers deterministic combining marks over each non-space character.',
   },
   {
+    name: 'bar',
     signature: "print('download ' + bar({ width: 30, filled: '#', empty: '-' }))",
     detail: 'bar(...) builds the visual meter and can be dropped straight into a printed line.',
   },
   {
+    name: 'repeat',
     signature: "repeat('.', { count: 3, from: 'frame' })",
     detail: 'Use repeat(...) when the playback frame should animate part of a line.',
   },
   {
+    name: 'counter',
     signature: 'counter()',
     detail: 'Use counter() when you want current/total without manually building the string.',
   },
   {
+    name: 'live values',
     signature: '`progress ${step}/${steps}`',
     detail: 'frame, step, and steps are live values you can embed directly in template literals.',
   },
@@ -102,6 +137,24 @@ export const dslReference = [
 
 function clampInteger(value: number, min: number, max: number) {
   return Math.min(Math.max(Math.round(value), min), max)
+}
+
+function clampOptionalInteger(value: unknown) {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? Math.round(numericValue) : undefined
+}
+
+function sanitizeAlignMode(value: unknown): AlignMode {
+  if (value === 'right' || value === 'center') {
+    return value
+  }
+
+  return 'left'
+}
+
+function sanitizeFill(value: unknown) {
+  const glyph = Array.from(String(value ?? ' '))[0]
+  return glyph ?? ' '
 }
 
 function sanitizeStringArray(rawValue: unknown, fallback: string[], maxLength: number) {
@@ -176,6 +229,30 @@ function combineMarksNode(value: unknown, options: DslCombineOptions = {}): Comb
   }
 }
 
+function padNode(parts: FrameNode[], width: number, options: DslPadOptions = {}): PadNode {
+  return {
+    type: 'pad',
+    parts,
+    width: clampInteger(width, 1, 80),
+    align: sanitizeAlignMode(options.align),
+    fill: sanitizeFill(options.fill),
+  }
+}
+
+function gateNode(parts: FrameNode[], condition: DslGateCondition = {}): GateNode {
+  return {
+    type: 'gate',
+    parts,
+    from:
+      condition.from === 'frame' || condition.from === 'total' ? condition.from : 'current',
+    gt: clampOptionalInteger(condition.gt),
+    gte: clampOptionalInteger(condition.gte),
+    lt: clampOptionalInteger(condition.lt),
+    lte: clampOptionalInteger(condition.lte),
+    eq: clampOptionalInteger(condition.eq),
+  }
+}
+
 function defineEffect(effect: DslEffectDefinition) {
   return effect
 }
@@ -194,7 +271,9 @@ function isFrameNode(value: unknown): value is FrameNode {
     maybeNode.type === 'progressBar' ||
     maybeNode.type === 'spinner' ||
     maybeNode.type === 'marquee' ||
-    maybeNode.type === 'combineMarks'
+    maybeNode.type === 'combineMarks' ||
+    maybeNode.type === 'pad' ||
+    maybeNode.type === 'gate'
   )
 }
 
@@ -306,6 +385,10 @@ function createScriptBuilder() {
     return nodes.length > 0 ? nodes : [textNode('')]
   }
 
+  function buildParts(...parts: unknown[]) {
+    return createLine(...parts)
+  }
+
   return {
     print(...parts: unknown[]) {
       state.lines.push(createLine(...parts))
@@ -334,6 +417,12 @@ function createScriptBuilder() {
     },
     combine(value: unknown, options: DslCombineOptions = {}) {
       return tokenize(combineMarksNode(value, options))
+    },
+    pad(value: unknown, width: number, options: DslPadOptions = {}) {
+      return tokenize(padNode(buildParts(value), width, options))
+    },
+    gate(condition: DslGateCondition = {}, ...parts: unknown[]) {
+      return tokenize(gateNode(buildParts(...parts), condition))
     },
     counter(separator = '/') {
       return `${current}${separator}${total}`
@@ -394,6 +483,14 @@ function normalizeProgressBarNode(rawNode: Record<string, unknown>): ProgressBar
   }
 }
 
+function normalizeNestedParts(rawParts: unknown, lineIndex: number, nodeIndex: number, label: string) {
+  if (!Array.isArray(rawParts) || rawParts.length === 0) {
+    throw new Error(`Line ${lineIndex + 1}, node ${nodeIndex + 1} ${label} needs at least one child part.`)
+  }
+
+  return rawParts.map((rawPart, childIndex) => normalizeNode(rawPart, lineIndex, childIndex))
+}
+
 function normalizeSpinnerNode(rawNode: Record<string, unknown>): SpinnerNode {
   return {
     type: 'spinner',
@@ -417,6 +514,29 @@ function normalizeCombineMarksNode(rawNode: Record<string, unknown>): CombineMar
     marks: sanitizeStringArray(rawNode.marks, DEFAULT_COMBINING_MARKS, 8),
     depth: clampInteger(Number(rawNode.depth ?? 1), 1, 4),
     from: rawNode.from === 'fixed' ? 'fixed' : 'frame',
+  }
+}
+
+function normalizePadNode(rawNode: Record<string, unknown>, lineIndex: number, nodeIndex: number): PadNode {
+  return {
+    type: 'pad',
+    parts: normalizeNestedParts(rawNode.parts, lineIndex, nodeIndex, 'pad(...)'),
+    width: clampInteger(Number(rawNode.width ?? 12), 1, 80),
+    align: sanitizeAlignMode(rawNode.align),
+    fill: sanitizeFill(rawNode.fill),
+  }
+}
+
+function normalizeGateNode(rawNode: Record<string, unknown>, lineIndex: number, nodeIndex: number): GateNode {
+  return {
+    type: 'gate',
+    parts: normalizeNestedParts(rawNode.parts, lineIndex, nodeIndex, 'gate(...)'),
+    from: rawNode.from === 'frame' || rawNode.from === 'total' ? rawNode.from : 'current',
+    gt: clampOptionalInteger(rawNode.gt),
+    gte: clampOptionalInteger(rawNode.gte),
+    lt: clampOptionalInteger(rawNode.lt),
+    lte: clampOptionalInteger(rawNode.lte),
+    eq: clampOptionalInteger(rawNode.eq),
   }
 }
 
@@ -454,6 +574,14 @@ function normalizeNode(rawNode: unknown, lineIndex: number, nodeIndex: number): 
 
   if (nodeType === 'combineMarks') {
     return normalizeCombineMarksNode(typedNode)
+  }
+
+  if (nodeType === 'pad') {
+    return normalizePadNode(typedNode, lineIndex, nodeIndex)
+  }
+
+  if (nodeType === 'gate') {
+    return normalizeGateNode(typedNode, lineIndex, nodeIndex)
   }
 
   throw new Error(
@@ -528,6 +656,14 @@ export function summarizeEffect(effect: EffectDefinition) {
             return `combine(${node.depth})`
           }
 
+          if (node.type === 'pad') {
+            return `pad(${node.width}, ${node.align})`
+          }
+
+          if (node.type === 'gate') {
+            return `gate(${node.from})`
+          }
+
           return `progress(${node.width})`
         })
         .join(' + ')
@@ -565,6 +701,8 @@ export function compileEffectSource(source: string): CompileResult {
       'spinner',
       'marquee',
       'combine',
+      'pad',
+      'gate',
       'print',
       'frame',
       'current',
@@ -585,6 +723,8 @@ export function compileEffectSource(source: string): CompileResult {
       builder.spinner,
       builder.marquee,
       builder.combine,
+      builder.pad,
+      builder.gate,
       builder.print,
       builder.frame,
       builder.current,
@@ -627,4 +767,6 @@ export const supportedPrimitives: PrimitiveType[] = [
   'spinner',
   'marquee',
   'combineMarks',
+  'pad',
+  'gate',
 ]
