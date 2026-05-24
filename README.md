@@ -13,7 +13,7 @@ The product direction is "Terminal Shadertoy": immediate feedback, a strong auth
 - No node graph until the underlying frame primitives are proven.
 - First export targets are JS, Python, and Rust.
 - Authoring is now code-first instead of form-first.
-- The current authoring surface is strict JS in a frame-script style: `print(...)` builds rows while helpers like `bar(...)`, `repeat(...)`, and `counter()` fill in dynamic pieces.
+- The current authoring surface is strict JS in a frame-script style: `print(...)` builds rows while helpers like `bar(...)`, `repeat(...)`, `spinner(...)`, `marquee(...)`, and `combine(...)` fill in dynamic pieces.
 - Sharing is URL-encoded state.
 - Persistence is the generated standalone code.
 
@@ -59,6 +59,9 @@ Current user-facing helpers are intentionally tiny:
 - `print`
 - `repeat`
 - `bar`
+- `spinner`
+- `marquee`
+- `combine`
 - `counter`
 - `frame` / `step` / `steps`
 

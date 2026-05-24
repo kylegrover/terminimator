@@ -40,7 +40,7 @@ Before introducing a freer authoring surface or a node graph, the project needs 
 
 ### JavaScript with rails
 
-User-authored code should be JavaScript, but not freeform terminal scripting. The author writes a strict frame-script that calls a small set of row-building helpers such as `print(...)`, `bar(...)`, `repeat(...)`, and `counter()`.
+User-authored code should be JavaScript, but not freeform terminal scripting. The author writes a strict frame-script that calls a small set of row-building helpers such as `print(...)`, `bar(...)`, `repeat(...)`, `spinner(...)`, `marquee(...)`, `combine(...)`, and `counter()`.
 
 That keeps the authoring experience flexible while preserving a shared intermediate representation for preview and export.
 
@@ -79,6 +79,9 @@ The script surface should expose deterministic runtime values and helpers such a
 - `counter()`
 - `bar(...)`
 - `repeat(...)`
+- `spinner(...)`
+- `marquee(...)`
+- `combine(...)`
 - `print(...)`
 
 Those helpers should still compile to pure structured nodes, not terminal side effects.
@@ -90,17 +93,19 @@ Potential early primitives:
 - `print`
 - `repeat`
 - `bar`
+- `spinner`
+- `marquee`
+- `combine`
 - `counter`
 
 These are the first primitives already represented in the repo and available in the editor helper surface.
 
 Likely next primitives once the first slice settles:
 
-- `space`
-- `counter`
 - `pad`
-- `truncate`
+- `align`
 - `style`
+- `gate`
 - effect-specific helpers once the IR can represent them cleanly
 
 ### Shared scene shape

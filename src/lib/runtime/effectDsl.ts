@@ -1,10 +1,13 @@
 import type {
+  CombineMarksNode,
   EffectDefinition,
   FrameNode,
+  MarqueeNode,
   PrimitiveType,
   ProgressBarNode,
   RepeatNode,
   RepeatSource,
+  SpinnerNode,
   TextNode,
   ValueNode,
   ValueSource,
@@ -20,6 +23,17 @@ type DslProgressBarOptions = {
   filled?: string
   empty?: string
   showCounter?: boolean
+}
+
+type DslMarqueeOptions = {
+  width?: number
+  gap?: string
+}
+
+type DslCombineOptions = {
+  marks?: string[]
+  depth?: number
+  from?: RepeatSource
 }
 
 type DslEffectDefinition = {
@@ -38,6 +52,8 @@ type InlineToken = {
 const INLINE_TOKEN_PREFIX = '__terminimator_inline_'
 const INLINE_TOKEN_PATTERN = /__terminimator_inline_\d+__/g
 const LEGACY_METADATA_LINE_PATTERN = /^\s*(title|describe)\(.*\)\s*;?\s*$/
+const DEFAULT_SPINNER_FRAMES = ['|', '/', '-', '\\']
+const DEFAULT_COMBINING_MARKS = ['\u0307', '\u0323', '\u0334']
 
 export type CompileResult =
   | {
@@ -53,6 +69,18 @@ export const dslReference = [
   {
     signature: "print('indexing project files')",
     detail: 'Each print(...) call becomes one terminal row in the preview and exports.',
+  },
+  {
+    signature: "print(spinner('|', '/', '-', '\\\\') + ' syncing package graph')",
+    detail: 'spinner(...) swaps between explicit frame strings based on the playback frame.',
+  },
+  {
+    signature: "print(marquee('deploying edge regions', { width: 28, gap: '   ' }))",
+    detail: 'marquee(...) scrolls a longer phrase through a fixed-width window.',
+  },
+  {
+    signature: "print(combine('signal degraded', { depth: 2 }))",
+    detail: 'combine(...) layers deterministic combining marks over each non-space character.',
   },
   {
     signature: "print('download ' + bar({ width: 30, filled: '#', empty: '-' }))",
@@ -74,6 +102,19 @@ export const dslReference = [
 
 function clampInteger(value: number, min: number, max: number) {
   return Math.min(Math.max(Math.round(value), min), max)
+}
+
+function sanitizeStringArray(rawValue: unknown, fallback: string[], maxLength: number) {
+  if (!Array.isArray(rawValue)) {
+    return [...fallback]
+  }
+
+  const values = rawValue
+    .map((value) => String(value))
+    .filter((value) => value.length > 0)
+    .slice(0, maxLength)
+
+  return values.length > 0 ? values : [...fallback]
 }
 
 function textNode(value: unknown): TextNode {
@@ -109,6 +150,32 @@ function progressBarNode(options: DslProgressBarOptions = {}): ProgressBarNode {
   }
 }
 
+function spinnerNode(rawFrames: unknown): SpinnerNode {
+  return {
+    type: 'spinner',
+    frames: sanitizeStringArray(rawFrames, DEFAULT_SPINNER_FRAMES, 24),
+  }
+}
+
+function marqueeNode(value: unknown, options: DslMarqueeOptions = {}): MarqueeNode {
+  return {
+    type: 'marquee',
+    value: String(value ?? ''),
+    width: clampInteger(options.width ?? 24, 4, 80),
+    gap: String(options.gap ?? '   '),
+  }
+}
+
+function combineMarksNode(value: unknown, options: DslCombineOptions = {}): CombineMarksNode {
+  return {
+    type: 'combineMarks',
+    value: String(value ?? ''),
+    marks: sanitizeStringArray(options.marks, DEFAULT_COMBINING_MARKS, 8),
+    depth: clampInteger(options.depth ?? 1, 1, 4),
+    from: options.from === 'fixed' ? 'fixed' : 'frame',
+  }
+}
+
 function defineEffect(effect: DslEffectDefinition) {
   return effect
 }
@@ -124,7 +191,10 @@ function isFrameNode(value: unknown): value is FrameNode {
     maybeNode.type === 'text' ||
     maybeNode.type === 'value' ||
     maybeNode.type === 'repeat' ||
-    maybeNode.type === 'progressBar'
+    maybeNode.type === 'progressBar' ||
+    maybeNode.type === 'spinner' ||
+    maybeNode.type === 'marquee' ||
+    maybeNode.type === 'combineMarks'
   )
 }
 
@@ -255,6 +325,16 @@ function createScriptBuilder() {
     bar(options: DslProgressBarOptions = {}) {
       return tokenize(progressBarNode(options))
     },
+    spinner(...frames: unknown[]) {
+      const rawFrames = frames.length === 1 && Array.isArray(frames[0]) ? frames[0] : frames
+      return tokenize(spinnerNode(rawFrames))
+    },
+    marquee(value: unknown, options: DslMarqueeOptions = {}) {
+      return tokenize(marqueeNode(value, options))
+    },
+    combine(value: unknown, options: DslCombineOptions = {}) {
+      return tokenize(combineMarksNode(value, options))
+    },
     counter(separator = '/') {
       return `${current}${separator}${total}`
     },
@@ -314,6 +394,32 @@ function normalizeProgressBarNode(rawNode: Record<string, unknown>): ProgressBar
   }
 }
 
+function normalizeSpinnerNode(rawNode: Record<string, unknown>): SpinnerNode {
+  return {
+    type: 'spinner',
+    frames: sanitizeStringArray(rawNode.frames, DEFAULT_SPINNER_FRAMES, 24),
+  }
+}
+
+function normalizeMarqueeNode(rawNode: Record<string, unknown>): MarqueeNode {
+  return {
+    type: 'marquee',
+    value: String(rawNode.value ?? ''),
+    width: clampInteger(Number(rawNode.width ?? 24), 4, 80),
+    gap: String(rawNode.gap ?? '   '),
+  }
+}
+
+function normalizeCombineMarksNode(rawNode: Record<string, unknown>): CombineMarksNode {
+  return {
+    type: 'combineMarks',
+    value: String(rawNode.value ?? ''),
+    marks: sanitizeStringArray(rawNode.marks, DEFAULT_COMBINING_MARKS, 8),
+    depth: clampInteger(Number(rawNode.depth ?? 1), 1, 4),
+    from: rawNode.from === 'fixed' ? 'fixed' : 'frame',
+  }
+}
+
 function normalizeNode(rawNode: unknown, lineIndex: number, nodeIndex: number): FrameNode {
   if (!rawNode || typeof rawNode !== 'object') {
     throw new Error(`Line ${lineIndex + 1}, node ${nodeIndex + 1} is not a valid primitive.`)
@@ -336,6 +442,18 @@ function normalizeNode(rawNode: unknown, lineIndex: number, nodeIndex: number): 
 
   if (nodeType === 'progressBar') {
     return normalizeProgressBarNode(typedNode)
+  }
+
+  if (nodeType === 'spinner') {
+    return normalizeSpinnerNode(typedNode)
+  }
+
+  if (nodeType === 'marquee') {
+    return normalizeMarqueeNode(typedNode)
+  }
+
+  if (nodeType === 'combineMarks') {
+    return normalizeCombineMarksNode(typedNode)
   }
 
   throw new Error(
@@ -398,6 +516,18 @@ export function summarizeEffect(effect: EffectDefinition) {
             return `repeat(${node.count}, ${node.from})`
           }
 
+          if (node.type === 'spinner') {
+            return `spinner(${node.frames.length})`
+          }
+
+          if (node.type === 'marquee') {
+            return `marquee(${node.width})`
+          }
+
+          if (node.type === 'combineMarks') {
+            return `combine(${node.depth})`
+          }
+
           return `progress(${node.width})`
         })
         .join(' + ')
@@ -432,6 +562,9 @@ export function compileEffectSource(source: string): CompileResult {
       'repeat',
       'progressBar',
       'bar',
+      'spinner',
+      'marquee',
+      'combine',
       'print',
       'frame',
       'current',
@@ -449,6 +582,9 @@ export function compileEffectSource(source: string): CompileResult {
       builder.repeat,
       builder.progressBar,
       builder.bar,
+      builder.spinner,
+      builder.marquee,
+      builder.combine,
       builder.print,
       builder.frame,
       builder.current,
@@ -483,4 +619,12 @@ export function compileEffectSource(source: string): CompileResult {
   }
 }
 
-export const supportedPrimitives: PrimitiveType[] = ['text', 'value', 'repeat', 'progressBar']
+export const supportedPrimitives: PrimitiveType[] = [
+  'text',
+  'value',
+  'repeat',
+  'progressBar',
+  'spinner',
+  'marquee',
+  'combineMarks',
+]

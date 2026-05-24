@@ -1,4 +1,11 @@
-export type PrimitiveType = 'text' | 'value' | 'repeat' | 'progressBar'
+export type PrimitiveType =
+  | 'text'
+  | 'value'
+  | 'repeat'
+  | 'progressBar'
+  | 'spinner'
+  | 'marquee'
+  | 'combineMarks'
 
 export type ValueSource = 'frame' | 'current' | 'total'
 
@@ -29,7 +36,34 @@ export type ProgressBarNode = {
   showCounter: boolean
 }
 
-export type FrameNode = TextNode | ValueNode | RepeatNode | ProgressBarNode
+export type SpinnerNode = {
+  type: 'spinner'
+  frames: string[]
+}
+
+export type MarqueeNode = {
+  type: 'marquee'
+  value: string
+  width: number
+  gap: string
+}
+
+export type CombineMarksNode = {
+  type: 'combineMarks'
+  value: string
+  marks: string[]
+  depth: number
+  from: RepeatSource
+}
+
+export type FrameNode =
+  | TextNode
+  | ValueNode
+  | RepeatNode
+  | ProgressBarNode
+  | SpinnerNode
+  | MarqueeNode
+  | CombineMarksNode
 
 export type FrameScene = {
   lines: FrameNode[][]

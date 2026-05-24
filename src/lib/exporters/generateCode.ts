@@ -23,6 +23,10 @@ function rustString(value: string) {
     .replace(/\t/g, '\\t')}"`
 }
 
+function rustStringArray(values: string[]) {
+  return `vec![${values.map((value) => `String::from(${rustString(value)})`).join(', ')}]`
+}
+
 function rustValueSource(source: ValueSource) {
   switch (source) {
     case 'frame':
@@ -44,6 +48,12 @@ function renderRustNode(node: FrameNode) {
       return `Node::Repeat { value: String::from(${rustString(node.value)}), count: ${node.count}, from_frame: ${node.from === 'frame'} }`
     case 'progressBar':
       return `Node::ProgressBar { width: ${node.width}, filled: String::from(${rustString(node.filled)}), empty: String::from(${rustString(node.empty)}), show_counter: ${node.showCounter} }`
+    case 'spinner':
+      return `Node::Spinner(${rustStringArray(node.frames)})`
+    case 'marquee':
+      return `Node::Marquee { value: String::from(${rustString(node.value)}), width: ${node.width}, gap: String::from(${rustString(node.gap)}) }`
+    case 'combineMarks':
+      return `Node::CombineMarks { value: String::from(${rustString(node.value)}), marks: ${rustStringArray(node.marks)}, depth: ${node.depth}, from_frame: ${node.from === 'frame'} }`
   }
 }
 
@@ -53,6 +63,54 @@ function generateJsCode(effect: EffectDefinition, playback: PlaybackState) {
 const fps = ${playback.fps}
 const loop = ${playback.loop}
 const delay = Math.max(1, Math.round(1000 / Math.max(fps, 1)))
+
+function renderSpinner(node, ctx) {
+  const frames = node.frames.length ? node.frames : ['|', '/', '-', '\\\\']
+  const index = ((ctx.frame % frames.length) + frames.length) % frames.length
+  return frames[index] ?? ''
+}
+
+function renderMarquee(node, ctx) {
+  const width = Math.min(Math.max(node.width, 4), 80)
+  const gap = node.gap && node.gap.length > 0 ? node.gap : ' '
+  const source = Array.from((node.value ?? '') + gap)
+
+  if (!source.length) {
+    return ''
+  }
+
+  const start = ((ctx.frame % source.length) + source.length) % source.length
+  let output = ''
+
+  for (let offset = 0; offset < width; offset += 1) {
+    output += source[(start + offset) % source.length] ?? ' '
+  }
+
+  return output
+}
+
+function renderCombineMarks(node, ctx) {
+  const marks = node.marks.length ? node.marks : ['\u0307', '\u0323', '\u0334']
+  const seed = node.from === 'frame' ? ctx.frame : 0
+  let output = ''
+  let glyphIndex = 0
+
+  for (const char of Array.from(node.value)) {
+    output += char
+
+    if (/\\s/u.test(char)) {
+      continue
+    }
+
+    for (let depthIndex = 0; depthIndex < node.depth; depthIndex += 1) {
+      output += marks[(seed + glyphIndex + depthIndex) % marks.length] ?? ''
+    }
+
+    glyphIndex += 1
+  }
+
+  return output
+}
 
 function renderNode(node, ctx) {
   switch (node.type) {
@@ -72,6 +130,12 @@ function renderNode(node, ctx) {
       const counter = node.showCounter ? ' ' + ctx.current + '/' + ctx.total : ''
       return '[' + bar + ']' + counter
     }
+    case 'spinner':
+      return renderSpinner(node, ctx)
+    case 'marquee':
+      return renderMarquee(node, ctx)
+    case 'combineMarks':
+      return renderCombineMarks(node, ctx)
     default:
       return ''
   }
@@ -111,6 +175,39 @@ EFFECT = json.loads(${pythonEffectLiteral(effect)})
 FPS = ${playback.fps}
 LOOP = ${playback.loop}
 DELAY = 1 / max(FPS, 1)
+DEFAULT_COMBINING_MARKS = ["\u0307", "\u0323", "\u0334"]
+
+
+def render_spinner(node, ctx):
+  frames = node["frames"] if node["frames"] else ["|", "/", "-", "\\"]
+  return frames[ctx["frame"] % len(frames)]
+
+
+def render_marquee(node, ctx):
+  width = max(4, min(int(node["width"]), 80))
+  gap = node["gap"] if node["gap"] else " "
+  source = (node["value"] + gap) or " "
+  start = ctx["frame"] % len(source)
+  return "".join(source[(start + offset) % len(source)] for offset in range(width))
+
+
+def render_combine_marks(node, ctx):
+  marks = node["marks"] if node["marks"] else DEFAULT_COMBINING_MARKS
+  seed = ctx["frame"] if node["from"] == "frame" else 0
+  output = []
+  glyph_index = 0
+
+  for char in node["value"]:
+    output.append(char)
+    if char.isspace():
+      continue
+
+    for depth_index in range(node["depth"]):
+      output.append(marks[(seed + glyph_index + depth_index) % len(marks)])
+
+    glyph_index += 1
+
+  return "".join(output)
 
 
 def render_node(node, ctx):
@@ -123,6 +220,15 @@ def render_node(node, ctx):
     if node["type"] == "repeat":
         count = ctx["frame"] % (node["count"] + 1) if node["from"] == "frame" else node["count"]
         return node["value"] * count
+
+  if node["type"] == "spinner":
+    return render_spinner(node, ctx)
+
+  if node["type"] == "marquee":
+    return render_marquee(node, ctx)
+
+  if node["type"] == "combineMarks":
+    return render_combine_marks(node, ctx)
 
     safe_total = max(ctx["total"], 1)
     ratio = max(0.0, min(ctx["current"] / safe_total, 1.0))
@@ -178,6 +284,73 @@ enum Node {
   Value(ValueSource),
     Repeat { value: String, count: usize, from_frame: bool },
     ProgressBar { width: usize, filled: String, empty: String, show_counter: bool },
+  Spinner(Vec<String>),
+  Marquee { value: String, width: usize, gap: String },
+  CombineMarks { value: String, marks: Vec<String>, depth: usize, from_frame: bool },
+}
+
+fn render_spinner(frames: &[String], frame: usize) -> String {
+  let fallback_frames = vec![
+    String::from("|"),
+    String::from("/"),
+    String::from("-"),
+    String::from("\\"),
+  ];
+  let active_frames: &[String] = if frames.is_empty() { &fallback_frames } else { frames };
+  active_frames[frame % active_frames.len()].clone()
+}
+
+fn render_marquee(value: &str, gap: &str, width: usize, frame: usize) -> String {
+  let width = width.clamp(4, 80);
+  let gap = if gap.is_empty() { " " } else { gap };
+  let source_chars: Vec<char> = format!("{}{}", value, gap).chars().collect();
+
+  if source_chars.is_empty() {
+    return String::new();
+  }
+
+  let start = frame % source_chars.len();
+  let mut output = String::new();
+
+  for offset in 0..width {
+    output.push(source_chars[(start + offset) % source_chars.len()]);
+  }
+
+  output
+}
+
+fn render_combine_marks(
+  value: &str,
+  marks: &[String],
+  depth: usize,
+  from_frame: bool,
+  frame: usize,
+) -> String {
+  let fallback_marks = vec![
+    String::from("\u{0307}"),
+    String::from("\u{0323}"),
+    String::from("\u{0334}"),
+  ];
+  let active_marks: &[String] = if marks.is_empty() { &fallback_marks } else { marks };
+  let seed = if from_frame { frame } else { 0 };
+  let mut output = String::new();
+  let mut glyph_index = 0usize;
+
+  for ch in value.chars() {
+    output.push(ch);
+
+    if ch.is_whitespace() {
+      continue;
+    }
+
+    for depth_index in 0..depth {
+      output.push_str(&active_marks[(seed + glyph_index + depth_index) % active_marks.len()]);
+    }
+
+    glyph_index += 1;
+  }
+
+  output
 }
 
 fn render_node(node: &Node, frame: usize, current: usize, total: usize) -> String {
@@ -204,6 +377,11 @@ fn render_node(node: &Node, frame: usize, current: usize, total: usize) -> Strin
             };
             format!("[{}]{}", bar, counter)
         }
+          Node::Spinner(frames) => render_spinner(frames, frame),
+          Node::Marquee { value, width, gap } => render_marquee(value, gap, *width, frame),
+          Node::CombineMarks { value, marks, depth, from_frame } => {
+            render_combine_marks(value, marks, *depth, *from_frame, frame)
+          }
     }
 }
 

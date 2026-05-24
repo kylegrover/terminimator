@@ -35,6 +35,24 @@ export const effectTemplates: EffectTemplate[] = [
 print('phase: compiling assets')`,
   },
   {
+    id: 'frame-spinner-set',
+    name: 'Frame Spinner Set',
+    description: 'Explicit spinner frames driven directly by the playback frame.',
+    playback: {
+      frame: 5,
+      current: 4,
+      total: 12,
+      fps: 8,
+      loop: true,
+    },
+    notes: [
+      'First pass at real spinner primitives instead of fake repeat counts.',
+      'Good for checking whether exports preserve frame stepping exactly.',
+    ],
+    source: `print(spinner('|', '/', '-', '\\\\') + ' syncing package graph')
+print('step ' + counter())`,
+  },
+  {
     id: 'quiet-dots',
     name: 'Quiet Dots',
     description: 'A tiny single-line loader for scripts that want almost no visual noise.',
@@ -69,6 +87,24 @@ print('phase: compiling assets')`,
     source: `print('download ' + bar({ width: 30, filled: '#', empty: '-', showCounter: true }))`,
   },
   {
+    id: 'marquee-logline',
+    name: 'Marquee Logline',
+    description: 'A clipped scrolling line for longer deployment or status text.',
+    playback: {
+      frame: 11,
+      current: 2,
+      total: 6,
+      fps: 5,
+      loop: true,
+    },
+    notes: [
+      'Exercises horizontal windowing with wraparound.',
+      'Useful for log tails, deploy banners, and long task labels.',
+    ],
+    source: `print(marquee('deploying edge regions across six zones', { width: 28, gap: '   ' }))
+print('rollout ' + counter())`,
+  },
+  {
     id: 'two-line-status',
     name: 'Two-Line Status',
     description: 'Simple stacked status text above a progress meter.',
@@ -86,23 +122,41 @@ print('phase: compiling assets')`,
     source: `print('indexing project files')
 print(\`progress \${bar({ width: 20, filled: '=', empty: '.', showCounter: false })} \${step}/\${steps}\`)`,
   },
+  {
+    id: 'void-hum',
+    name: 'Void Hum',
+    description: 'Combining marks layered over text to push into stranger terminal territory.',
+    playback: {
+      frame: 4,
+      current: 7,
+      total: 9,
+      fps: 6,
+      loop: true,
+    },
+    notes: [
+      'The first real step toward noisier text effects and zalgo-style motion.',
+      'Uses deterministic combining marks so preview and export stay in sync.',
+    ],
+    source: `print(combine('signal degraded', { depth: 2, marks: ['\u0307', '\u0323', '\u0334'] }))
+print('carrier ' + repeat('~', { count: 6, from: 'frame' }))`,
+  },
 ]
 
 export const futureIdeas: FutureIdea[] = [
   {
-    name: 'Void Hum',
-    need: 'Per-character transforms and combining-mark overlays.',
-    why: 'This is the first clear step toward zalgo-style text effects.',
+    name: 'Pad Grid',
+    need: 'Padding, alignment, and fixed-width column helpers.',
+    why: 'Status boards and multi-column terminal layouts need structure, not just motion.',
   },
   {
-    name: 'Frame Spinner Set',
-    need: 'A frame-sequence primitive that swaps between explicit strings.',
-    why: 'Classic spinners should not need to be faked with repeat counts forever.',
+    name: 'ANSI Paint',
+    need: 'Color and emphasis spans that export cleanly across targets.',
+    why: 'Once motion feels solid, style is the next obvious layer people will reach for.',
   },
   {
-    name: 'Marquee Logline',
-    need: 'Windowing and clipping primitives with horizontal offsets.',
-    why: 'Scrolling status text is a common terminal effect outside of progress bars.',
+    name: 'Phase Gates',
+    need: 'Conditional fragments and line toggles based on frame or progress.',
+    why: 'Many real terminal effects change layout or copy as work crosses thresholds.',
   },
 ]
 
