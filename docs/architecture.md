@@ -40,17 +40,33 @@ Before introducing a freer authoring surface or a node graph, the project needs 
 
 ### JavaScript with rails
 
-User-authored code should be JavaScript, but not freeform terminal scripting. The author writes a strict frame-script that calls a small set of row-building helpers such as `print(...)`, `bar(...)`, `repeat(...)`, `spinner(...)`, `marquee(...)`, `combine(...)`, and `counter()`.
+User-authored code should be JavaScript, but not freeform terminal scripting. The author writes a strict frame-script that calls a small set of row-building helpers such as `print(...)`, `bar(...)`, `repeat(...)`, `spinner(...)`, `marquee(...)`, `combine(...)`, `pad(...)`, `gate(...)`, and `counter()`.
 
 That keeps the authoring experience flexible while preserving a shared intermediate representation for preview and export.
 
 At the moment, the editor is effectively a small JS-authored DSL built from helper functions.
+
+The preferred user-facing surface is the frame-script helper library documented in `docs/frame-script.md`.
+
+The runtime still exposes some lower-level compatibility helpers such as `text(...)`, `line(...)`, `progressBar(...)`, and `return defineEffect({ ... })`, but those are not the primary authoring path.
 
 ### Shared frame IR
 
 Preview, templates, exporters, saved configs, and the later node graph should all target the same frame IR.
 
 That IR is the real product core.
+
+The current shape is closer to this than the earlier scene-object sketches:
+
+```ts
+type EffectDefinition = {
+  name: string
+  description?: string
+  lines: FrameNode[][]
+}
+```
+
+Each `FrameNode` is one primitive in a rendered line. The preview and exporters are intentionally driven from the same node list.
 
 ## Proposed execution model
 
@@ -74,6 +90,8 @@ print('phase: compiling assets')
 The script surface should expose deterministic runtime values and helpers such as:
 
 - `frame`
+- `current`
+- `total`
 - `step`
 - `steps`
 - `counter()`
@@ -111,35 +129,40 @@ Likely next primitives once the first slice settles:
 - `jitter`
 - effect-specific helpers once the IR can represent them cleanly
 
-### Shared scene shape
-
-Keep the IR multi-line capable even if the first templates are mostly one line.
-
-That avoids repainting the whole model later when multiline effects or stacked status regions appear.
-
-The current repo uses a shape in this direction:
-
-```ts
-type FrameScene = {
-  lines: {
-    id: string
-    nodes: FrameNode[]
-  }[]
-}
-```
-
 ### Preview runtime
 
 - text editor first
 - browser preview renderer first
 - playback controls for frame, current, total, fps, and loop
 - template switching to stress the IR with multiple effect shapes
+- autoplay enabled by default so edits immediately play through the loop
 
 The preview must feel deterministic. If the same inputs are replayed, the same frames should render.
 
 For the current slice, a browser-native preview renderer is sufficient. A full terminal emulator can land later once ANSI behavior and cursor control matter.
 
 The current evaluator uses strict helper-scoped JavaScript via the browser runtime. If sandbox guarantees become necessary, that can move behind QuickJS later without changing the IR.
+
+### Share state boundary
+
+The URL is intentionally not a full replay of the UI.
+
+Durable share state currently includes:
+
+- source text
+- selected starter template id
+- export target
+- playback `total`
+- playback `fps`
+- playback `loop`
+
+Transient UI state is intentionally excluded:
+
+- current `frame`
+- current `current` progress value
+- play / pause state
+
+That keeps the URL stable while autoplay is running.
 
 ## Export strategy
 
@@ -198,18 +221,27 @@ src/
   styles/
 ```
 
-### Next slices to add when implementation starts
+The current control path is:
 
-```text
-src/
-  features/
-    templates/
-    export/
-  lib/
-    runtime/
-```
+1. `PlaygroundPage.tsx` owns source text, playback UI state, share-state sync, and export target selection.
+2. `effectDsl.ts` compiles frame-script source into `EffectDefinition`.
+3. `renderScene.ts` renders that effect into browser preview text.
+4. `generateCode.ts` emits JS, Python, or Rust code from the same effect.
+5. `templates.ts` stress-tests the helper surface and acts as the first library of examples.
 
 The rule is to add slices only when they get real code. Do not create empty structure for imagined future abstractions.
+
+### Primitive addition workflow
+
+Any new helper or primitive should usually touch the same set of places:
+
+1. `src/lib/schema/frame.ts` for node shape or shared types.
+2. `src/lib/runtime/effectDsl.ts` for helper exposure, normalization, and docs metadata.
+3. `src/lib/preview/renderScene.ts` for preview semantics.
+4. `src/lib/exporters/generateCode.ts` for JS, Python, and Rust parity.
+5. `src/features/playground/templates.ts` for at least one starter example.
+6. `docs/frame-script.md` and any relevant overview docs.
+7. Validation through `npm run lint`, `npm run build`, and a manual browser smoke test.
 
 ## Known risks
 
@@ -243,16 +275,14 @@ That keeps the product deployable as static files while still making effects por
 
 1. Tighten the current playground and its primitive editing UX.
 2. Lock the frame IR around the current multiline-ready scene shape.
-3. Use the template library and the unsupported-ideas list to drive the next primitive additions.
+3. Use the template library and the current idea backlog to drive the next primitive additions.
 4. Improve export quality for JS, Python, and Rust.
 5. Add a better terminal preview surface and richer URL-sharing ergonomics.
-5. Add Go once the current exporter contract holds up.
-6. Start the graph editor only after the primitive vocabulary stabilizes.
+6. Add Go once the current exporter contract holds up.
+7. Start the graph editor only after the primitive vocabulary stabilizes.
 
-## Questions to resolve before phase 1 is locked
+## Current open questions
 
-- When should the playground switch from a form-first editor to code-first authoring?
-- Which primitives belong in the next expansion beyond `text`, `repeat`, and `progressBar`?
-- How far can URL-state sharing stretch before a downloadable preset format becomes necessary?
-
-The first of those is now answered: code-first authoring is the current direction.
+- When should ANSI styling become part of the shared IR instead of staying a later formatting layer?
+- How far can URL-state sharing stretch before downloadable preset files become necessary?
+- When do width-aware trimming and jitter become important enough to promote into the default helper surface?

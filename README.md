@@ -4,6 +4,15 @@ Terminimator is a static single-page playground for designing terminal-first mot
 
 The product direction is "Terminal Shadertoy": immediate feedback, a strong authoring surface, and exportable code for real scripts.
 
+## Start Here
+
+If you are new to the repo, read these in order:
+
+1. `README.md` for product scope, current capabilities, and quick start.
+2. `docs/frame-script.md` for the author-facing helper library and example surface.
+3. `docs/repo-guide.md` for the internal repo map, state flow, and contributor workflow.
+4. `docs/architecture.md` for the higher-level design rationale and tradeoffs.
+
 ## Current posture
 
 - One Vite + React + TypeScript app.
@@ -14,8 +23,51 @@ The product direction is "Terminal Shadertoy": immediate feedback, a strong auth
 - First export targets are JS, Python, and Rust.
 - Authoring is now code-first instead of form-first.
 - The current authoring surface is strict JS in a frame-script style: `print(...)` builds rows while helpers like `bar(...)`, `repeat(...)`, `spinner(...)`, `marquee(...)`, `combine(...)`, `pad(...)`, and `gate(...)` fill in dynamic pieces.
+- The preview auto-plays by default and loops unless the user turns loop off.
 - Sharing is URL-encoded state.
 - Persistence is the generated standalone code.
+
+## Quick start
+
+```bash
+npm install
+npm run dev
+```
+
+Useful follow-up commands:
+
+```bash
+npm run lint
+npm run build
+npm run preview
+```
+
+There is no automated browser test suite yet. The current workflow is lint, build, then a manual browser smoke check.
+
+## What the app does today
+
+- Lets the user write a frame-script in a textarea.
+- Compiles that script into a shared multiline terminal IR.
+- Renders the same IR in the browser preview and the code exporters.
+- Exports standalone JS, Python, and Rust versions of the current effect.
+- Provides a starter template library that doubles as the main primitive test harness.
+- Shares durable state through the URL.
+
+Only durable state is encoded into the URL:
+
+- source
+- selected starter template id
+- export target
+- playback `total`
+- playback `fps`
+- playback `loop`
+
+Transient UI-only state stays local:
+
+- current frame
+- current progress position
+- play/pause state
+- clipboard status
 
 ## Current repo shape
 
@@ -23,6 +75,8 @@ The product direction is "Terminal Shadertoy": immediate feedback, a strong auth
 terminimator/
   docs/
     architecture.md
+    frame-script.md
+    repo-guide.md
   src/
     app/
       App.tsx
@@ -65,9 +119,26 @@ Current user-facing helpers are intentionally tiny:
 - `pad`
 - `gate`
 - `counter`
-- `frame` / `step` / `steps`
+- `frame` / `current` / `total`
+- `step` / `steps`
+
+The primary helper guide is in `docs/frame-script.md`.
 
 That is enough to validate the frame-script workflow, shared IR, preview loop, and export strategy before widening the primitive surface.
+
+## Current starter library
+
+The built-in starter templates are the main coverage surface for the current helpers:
+
+- `Compile Progress`: repeat + bar + counter across two lines.
+- `Frame Spinner Set`: explicit spinner frames.
+- `Padded Ledger`: fixed-width layout with `pad(...)`.
+- `Quiet Dots`: smallest viable single-line loader.
+- `Download Meter`: louder bar style and counter display.
+- `Marquee Logline`: scrolling clipped status text.
+- `Two-Line Status`: stacked multiline output.
+- `Phase Gates`: threshold-based conditional copy.
+- `Void Hum`: deterministic combining-mark text effects.
 
 ## Guiding decisions
 
@@ -93,15 +164,6 @@ Potential later libraries still on the shortlist:
 - `quickjs-emscripten`
 - `Zod`
 
-## Commands
-
-```bash
-npm install
-npm run dev
-npm run build
-npm run lint
-```
-
 ## Near-term milestones
 
 1. Tighten the frame-script helper surface and keep the IR honest as templates expand.
@@ -112,4 +174,5 @@ npm run lint
 
 See `docs/architecture.md` for the full technical plan.
 See `docs/frame-script.md` for the user-facing helper guide.
+See `docs/repo-guide.md` for the internal contributor guide.
 
