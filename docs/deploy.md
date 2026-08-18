@@ -21,6 +21,18 @@ Mixed origins within one Cloudflare zone are normal.
 ## Coolify setup
 
 1. New resource → **Dockerfile** (not Nixpacks — the Dockerfile is committed).
+
+   ⚠️ **This is the step that actually broke the first deploy (2026-08-18).**
+   Coolify defaulted the resource to **Nixpacks**, which ignores the committed
+   Dockerfile entirely and autodetects a Node app instead. It then pinned Node
+   **22.11.0**, and `vite@8` requires `^20.19.0 || >=22.12.0` — a miss by 0.0.1
+   — after which `rolldown` failed to load its native binding
+   (`rolldown-binding.linux-x64-gnu.node`, the npm optional-deps bug
+   npm/cli#4828). The build died and **no container was ever produced.**
+
+   Our Dockerfile builds on `node:24-alpine` with `npm ci`, which sidesteps both
+   problems. If you see `Generating nixpacks configuration` in the deploy log,
+   stop — the build pack is wrong, and nothing downstream of it will make sense.
 2. Source: `github.com/kylegrover/terminimator`, branch `main`.
 3. Domain: `https://terminimator.ufffd.com`.
 4. Port: **80**.
@@ -44,8 +56,19 @@ just costs you a pointless toggle.
 
 Because the `ufffd.com` zone is on **Full (strict)**, expect `526` for the first
 minute or two after the resource is created, until Traefik finishes the challenge
-and installs the cert. That is normal. A `526` that persists past a few minutes
-means no certificate is being issued — check the proxy logs.
+and installs the cert. That is normal.
+
+**A `526` that persists is more ambiguous than it looks, and this cost us real
+time.** Traefik serves its **default self-signed certificate** whenever *no route
+matches the hostname* — which produces a `526` identical to a genuine cert
+failure. So a persistent `526` means *any* of: the resource was never created,
+the build failed so no container exists, or the cert genuinely didn't issue. All
+three looked the same from outside, and origin :443 is firewalled to Cloudflare's
+ranges, so none of it is inspectable from a dev machine.
+
+**Read the deploy log first.** It distinguishes all three in seconds; guessing
+from outside cannot distinguish them at all. In our case the answer was the
+build pack (see Coolify setup step 1) and certificates were never involved.
 
 If DNS-01 validation fails, raise
 `--certificatesresolvers.letsencrypt.acme.dnschallenge.delaybeforecheck` from `0`
@@ -80,5 +103,36 @@ prove.
 
 ## Coolify project
 
-<!-- TODO: record which Coolify project this resource lives in. It was an open
-     question on 2026-08-10 and the answer belongs here. -->
+**The `ufffd` project**, on the VPS at `192.3.196.144`. Kyle moved the resource
+there on 2026-08-18, alongside the other ufffd services. That server also runs
+plenty of unrelated things — the `ufffd` project is the boundary that keeps this
+one findable.
+
+Answers the TODO open here since 2026-08-10. Note that "couldn't find it in
+Coolify" was itself the symptom that revealed the app had never been deployed at
+all, so keeping this recorded is not just bookkeeping.
+
+## Status
+
+**Live and verified 2026-08-18.** First successful deploy after switching the
+build pack from Nixpacks to Dockerfile:
+
+| Check | Result |
+|---|---|
+| `GET /` | `200` |
+| `GET /health.json` | `{"status":"ok","service":"terminimator"}` |
+| SPA fallback on a deep path | `200` |
+| Security headers | all 6 present |
+
+The six are `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`,
+`Permissions-Policy`, `Cross-Origin-Opener-Policy`, and
+`Strict-Transport-Security` — matching `nginx.conf` exactly. **There is no CSP**;
+that is a deliberate absence rather than a regression, and would be the obvious
+addition if this ever wants hardening.
+
+The "never tested locally with Docker" seam noted above was also closed on
+2026-08-17 by a real local build and run, before this deploy.
+
+**Still unproven by any automated check:** load a sketch, share the URL, open it
+in a private window. The `?s=` round trip is the actual product and no health
+check touches it.
